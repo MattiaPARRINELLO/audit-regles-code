@@ -5,6 +5,15 @@ Fichiers analysés : 1
 Langages : python
 Violations : 8
 
+| Règle | Nombre | Gravité |
+|---|---|---|
+| fonction_trop_longue | 1 | moyenne |
+| else_apres_return | 1 | basse |
+| comparaison_enchainee | 1 | basse |
+| suppression_linter | 1 | moyenne |
+| fonction_morte | 2 | moyenne |
+| code_commente | 2 | basse |
+
 ## fonction_trop_longue (1)
 
 - `exemple.py:7` [python] calculer_total : 11 lignes utiles (max 10)

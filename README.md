@@ -11,6 +11,11 @@ un jeu de règles de style strictes, puis corrige chaque violation en détail.
 - **Questions** : le skill demande au lieu de deviner quand une règle est
   ambiguë, quand une correction changerait le comportement ou quand deux règles
   se contredisent.
+- **Configuration** : `.audit-regles.json` par dépôt.
+- **Baseline** : geler les violations existantes, ne signaler que les nouvelles.
+- **CI** : `--check` pour le code de sortie, `--format sarif` pour GitHub.
+- **Issues** : en mode audit, issue de synthèse et une sous-issue par règle,
+  après confirmation.
 
 ## Installation
 
@@ -33,6 +38,59 @@ Demander simplement :
 - « applique les consignes du prof »
 
 Ou appeler le skill par son nom.
+
+## Configuration
+
+Créer `.audit-regles.json` à la racine du dépôt audité :
+
+```json
+{
+  "max_lignes": 10,
+  "max_colonnes": 79,
+  "langues": ["python", "javascript"],
+  "exclure": ["demo/avant", "migrations"],
+  "regles_desactivees": ["duplication"],
+  "srp": true,
+  "duplication": { "seuil_lignes": 4, "min_occurrences": 2 },
+  "ordre": false
+}
+```
+
+Priorité : valeurs par défaut, puis ce fichier, puis les options de la ligne de
+commande.
+
+## Baseline et CI
+
+Geler l'existant, puis bloquer seulement les nouvelles violations :
+
+```bash
+audit-regles . --ecrire-baseline .audit-baseline.json
+audit-regles . --baseline .audit-baseline.json --check
+```
+
+`--check` renvoie 1 s'il reste une violation non gelée. Sortie SARIF pour
+GitHub :
+
+```bash
+audit-regles . --format sarif --sortie audit.sarif --check
+```
+
+## Mode audit et issues
+
+Après un audit, le skill propose d'ouvrir une issue GitHub : une synthèse avec le
+tableau des règles, puis une sous-issue par règle rattachée à la synthèse. Rien
+n'est créé sans confirmation, et jamais dans un dépôt qui n'est pas le remote du
+dossier.
+
+## Tests
+
+```bash
+python -m pytest -q tests
+```
+
+La suite couvre Python, JavaScript, Go et Ruby, la configuration, la baseline,
+le code de sortie, SARIF, l'heuristique SRP, la duplication et l'ordre des
+fonctions.
 
 ## Démonstration avant / après
 
@@ -167,6 +225,9 @@ eslint, gofmt, cargo clippy, rubocop, php-cs-fixer, ktlint, swiftlint, shellchec
 ```
 .
 ├── README.md
+├── pyproject.toml
+├── .github/workflows/ci.yml
+├── tests/test_audit.py
 ├── demo/
 │   ├── avant/exemple.py
 │   ├── apres/exemple.py
@@ -197,8 +258,10 @@ python3 skill/audit-regles-code/scripts/audit_regles.py demo/apres
   est estimée par comptage d'accolades ou de `end`, et marquée « heuristique à
   vérifier ».
 - `fonction_morte` n'est détectée qu'en Python.
-- `code_commente` et `fonction_morte` sont des détections heuristiques, marquées
-  « à vérifier » : une fonction peut être appelée par une chaîne ou un callback.
+- `code_commente`, `fonction_morte`, `responsabilite_multiple`, `duplication` et
+  `ordre_fonctions` sont des détections heuristiques, marquées « à vérifier » :
+  une fonction peut être appelée par une chaîne ou un callback, et une
+  duplication peut être volontaire.
 - Le script d'analyse est un outil de diagnostic : ses propres fonctions
   dépassent la limite de 10 lignes, car il privilégie la lisibilité de l'analyse.
   Les règles de taille visent le code applicatif, pas l'outillage.

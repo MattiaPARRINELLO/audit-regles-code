@@ -5,4 +5,7 @@ Fichiers analysés : 1
 Langages : python
 Violations : 0
 
+| Règle | Nombre | Gravité |
+|---|---|---|
+
 Aucune violation détectée.
