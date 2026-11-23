@@ -246,8 +246,12 @@ eslint, gofmt, cargo clippy, rubocop, php-cs-fixer, ktlint, swiftlint, shellchec
 ├── .github/workflows/ci.yml
 ├── tests/test_audit.py
 ├── demo/
-│   ├── avant/exemple.py
-│   ├── apres/exemple.py
+│   ├── avant/
+│   │   ├── facture.py
+│   │   └── main.py
+│   ├── apres/
+│   │   ├── facture.py
+│   │   └── main.py
 │   ├── rapport-avant.md
 │   └── rapport-apres.md
 └── skill/
