@@ -1,12 +1,18 @@
 ---
 name: audit-regles-code
-description: Audite tout le code d'un dépôt Python contre des règles de style strictes (prédicats en gardes successives, pas de else après return, pas de noqa, pas de comparaisons enchaînées, 10 lignes utiles maximum par fonction, nommage afficher_ / demander_ / *_valide, réutilisation, ordre des fonctions, modules sans cycle d'import, commentaires qui disent pourquoi), puis corrige chaque violation en détail, avec un commit par correction et une note avant/après écrite hors du dépôt. Deux modes, audit seul et correction. Utiliser quand l'utilisateur dit « vérifie que le code respecte les règles », « audit des règles », « corrige les violations de style », « passe le repo au propre », « applique les consignes du prof », ou lance /audit-regles-code. Use when the user asks to audit or fix strict Python code style rules in a repository.
+description: Audite tout le code d'un dépôt, quel que soit le langage, contre des règles de style strictes (prédicats en gardes successives, pas de else après return, pas de directives de suppression, pas de comparaisons enchaînées, 10 lignes utiles maximum par fonction, nommage explicite, réutilisation, ordre des fonctions, modules sans cycle d'import, commentaires qui disent pourquoi), puis corrige chaque violation en détail, avec un commit par correction et une note avant/après écrite hors du dépôt. Python est analysé par AST, les autres langages par heuristiques et linters locaux. Deux modes, audit seul et correction. Utiliser quand l'utilisateur dit « vérifie que le code respecte les règles », « audit des règles », « corrige les violations de style », « passe le repo au propre », « applique les consignes du prof », ou lance /audit-regles-code. Use when the user asks to audit or fix strict code style rules in a repository, in any language.
 ---
 
 # Audit des règles de code
 
-Ce skill lit l'intégralité d'un dépôt, compare chaque fichier Python à un jeu de
-règles strictes, corrige les écarts un par un, et documente le avant/après.
+Ce skill lit l'intégralité d'un dépôt, compare chaque fichier de code à un jeu
+de règles strictes, corrige les écarts un par un, et documente le avant/après.
+
+Python est analysé par AST, donc avec précision. Les autres langages sont
+analysés par heuristiques (longueur des blocs, lignes, directives de
+suppression, code commenté) et par les linters locaux. Les règles qui ne se
+mesurent pas automatiquement (nommage, ordre, duplication, commentaires) sont
+vérifiées en lisant le code.
 
 ## Ce qu'il fait
 
@@ -44,10 +50,12 @@ chaque fichier.
 
 ## Étape 1 : inventaire du dépôt
 
-1. Vérifier la langue. Ce skill cible Python. Si le dépôt est dans une autre
-   langue, le dire et s'arrêter.
+1. Détecter les langages présents (extensions de fichiers) et les lister. Le
+   script couvre Python, JavaScript, TypeScript, Java, C, C++, C#, Go, Rust,
+   Ruby, PHP, Swift, Kotlin, Scala, Shell et Lua.
 2. Repérer la configuration existante : `pyproject.toml`, `ruff.toml`,
-   `setup.cfg`, `tox.ini`, `requirements.txt`.
+   `eslint.config.js`, `.eslintrc`, `tsconfig.json`, `go.mod`, `Cargo.toml`,
+   `Gemfile`, `composer.json`, `package.json`.
 3. Lire `AGENTS.md`, `CONTRIBUTING.md` et tout fichier de consignes présent :
    elles priment sur les règles génériques.
 4. Lire `references/regles.md` pour la liste complète.
@@ -71,16 +79,29 @@ python3 "<dossier-du-skill>/scripts/audit_regles.py" <racine> --format md
 ```
 
 Le script détecte : fonction trop longue, `else` après `return`, comparaison
-enchaînée, `noqa`, code commenté, prédicat non booléen, fonction morte, cycle
-d'import, ligne trop longue, erreur de syntaxe.
+enchaînée, directive de suppression, code commenté, prédicat non booléen,
+fonction morte, cycle d'import, ligne trop longue, erreur de syntaxe.
 
-Compléter avec l'outillage du projet, dans cet ordre :
+En Python, l'analyse est exacte. Ailleurs, `fonction_trop_longue` est
+heuristique (comptage d'accolades ou de `end`) et porte la mention « à
+vérifier » : confirmer en lisant le bloc avant de corriger.
 
-```bash
-ruff check .          # si présent
-python3 -m pycodestyle .   # si présent
-pyright .             # si présent
-```
+Compléter avec l'outillage du projet. Selon les langages détectés :
+
+| Langage | Outils |
+|---|---|
+| Python | `ruff check .`, `python3 -m pycodestyle .`, `pyright .` |
+| JavaScript, TypeScript | `npx eslint .`, `npx tsc --noEmit`, `npx prettier --check .` |
+| Go | `gofmt -l .`, `go vet ./...`, `golangci-lint run` |
+| Rust | `cargo fmt --check`, `cargo clippy` |
+| Ruby | `rubocop` |
+| PHP | `php-cs-fixer fix --dry-run --diff`, `phpstan analyse` |
+| Java, Kotlin | `./gradlew check`, `ktlint` |
+| C#, .NET | `dotnet format --verify-no-changes` |
+| Swift | `swiftlint` |
+| Shell | `shellcheck` |
+
+Ne lancer que les outils réellement installés et configurés par le projet.
 
 Enfin, ouvrir les fichiers signalés et lire le contexte autour de chaque ligne.
 Le script signale des candidats, pas des verdicts : `fonction_morte` et
@@ -116,9 +137,7 @@ Format attendu :
 
 ## Vérifications de départ
 
-- ruff : <état>
-- pycodestyle : <état>
-- pyright : <état>
+- linters du projet : <état>
 - tests : <état>
 ```
 
@@ -131,7 +150,7 @@ Ordre de traitement, du plus grave au plus cosmétique :
 1. Erreurs de syntaxe et imports cassés.
 2. Cycles d'import et fonctions mortes.
 3. Fonctions trop longues, prédicats non booléens, `else` après `return`.
-4. Comparaisons enchaînées, `noqa`.
+4. Comparaisons enchaînées, directives de suppression.
 5. Nommage, duplication, ordre des fonctions.
 6. Lignes trop longues, code commenté, commentaires.
 
@@ -174,9 +193,7 @@ Mettre à jour le même fichier de note avec une section finale :
 
 ## Vérifications finales
 
-- ruff : <état>
-- pycodestyle : <état>
-- pyright : <état>
+- linters du projet : <état>
 - tests : <état>
 
 ## Écarts assumés
@@ -220,14 +237,17 @@ Formuler la question avec les options concrètes, pas une question ouverte.
   règles de gravité haute, et le noter.
 - **Faux positif de fonction morte** : vérifier les références par chaîne, les
   entrées `if __name__ == "__main__"` et les dictionnaires d'actions.
-- **Dépôt sans linter** : utiliser `python3 -m py_compile` sur les fichiers
-  modifiés et exécuter le point d'entrée.
+- **Dépôt sans linter** : compiler ou vérifier la syntaxe avec l'outil du
+  langage (`python3 -m py_compile`, `node --check`, `go build`, `cargo check`),
+  puis exécuter le point d'entrée.
 - **Dépôt sans tests** : construire un scénario court (entrées, sortie
   attendue) et le documenter dans la note.
+- **Langage non couvert** : le script ignore l'extension. Appliquer les règles
+  à la lecture et utiliser le linter du langage. Le signaler dans la note.
 
 ## Fichiers du skill
 
-- `scripts/audit_regles.py` : détection déterministe, sortie Markdown ou JSON.
+- `scripts/audit_regles.py` : détection multi-langage, sortie Markdown ou JSON.
 - `references/regles.md` : les 16 règles, avec exemples et méthode de détection.
 - `references/corrections.md` : une recette par type de violation, avec avant,
   après et message de commit.

@@ -3,6 +3,9 @@
 Une recette par type de violation. Toujours dans cet ordre : lire le contexte
 autour de la ligne, corriger, exécuter la vérification, commiter.
 
+Les exemples sont en Python. Transposer la syntaxe au langage du dépôt (accolades,
+`end`, annotations de type) sans changer l'intention de la correction.
+
 ## fonction_trop_longue
 
 1. Identifier les étapes de la fonction, en une phrase chacune.
@@ -83,15 +86,15 @@ if len(pseudo) > 40:
 
 Commit : `refactor(<portée>): séparer la comparaison enchaînée dans <nom>`.
 
-## noqa
+## Directive de suppression
 
-1. Identifier la règle visée.
+1. Identifier la règle visée (`noqa`, `eslint-disable`, `nolint`, `rubocop:disable`).
 2. Réécrire le code pour la satisfaire, ou désactiver la règle dans la
    configuration du linter si elle contredit une consigne explicite.
-3. Ne jamais laisser un `noqa`, ne jamais utiliser `--fix --unsafe-fixes` à
+3. Ne jamais laisser la directive, ne jamais utiliser `--fix --unsafe-fixes` à
    l'aveugle.
 
-Commit : `refactor(<portée>): supprimer la directive noqa dans <nom>`.
+Commit : `refactor(<portée>): supprimer la directive de suppression dans <nom>`.
 
 ## predicat_non_booleen
 

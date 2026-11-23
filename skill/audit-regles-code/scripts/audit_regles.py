@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-"""Audit déterministe d'un dépôt Python contre les règles de style du projet.
+"""Audit multi-langage d'un dépôt contre les règles de style du projet.
 
-Détecte les violations mesurables par AST ou par expression régulière :
-longueur des fonctions, else après return, comparaisons enchaînées,
-directives noqa, code commenté, prédicats non booléens, fonctions mortes,
-cycles d'imports et lignes trop longues.
+Python est analysé par AST (précis). Les autres langages sont analysés par
+heuristiques : longueur des blocs, lignes trop longues, directives de
+suppression, code commenté. Les règles structurelles non mesurables (nommage,
+ordre, duplication, commentaires) restent à la lecture de l'agent.
 
-Sortie : rapport Markdown sur stdout, ou fichier avec --sortie, ou JSON
-avec --format json.
+Sortie : Markdown sur stdout, ou fichier avec --sortie, ou JSON avec
+--format json.
 """
 
 import argparse
 import ast
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -32,31 +31,104 @@ EXCLUS_PAR_DEFAUT = {
     "dist",
     ".tox",
     "site-packages",
+    "target",
+    "vendor",
+    ".next",
+    "coverage",
+}
+
+LANGAGES = {
+    ".py": "python",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".java": "java",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".php": "php",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".scala": "scala",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".lua": "lua",
 }
 
 REGEX_NOQA = re.compile(r"#\s*noqa")
-REGEX_CODE_COMMENTE = re.compile(
-    r"^\s*#\s*(def |class |return |if |elif |else:|for |while |import |from |"
-    r"print\(|[A-Za-z_][A-Za-z0-9_]*\s*=)"
+REGEX_SUPPRESSION = re.compile(
+    r"(#\s*noqa|#\s*type:\s*ignore|#\s*pylint:\s*disable|"
+    r"#\s*rubocop:disable|//\s*eslint-disable|/\*\s*eslint-disable|"
+    r"//\s*@ts-ignore|//\s*@ts-expect-error|//\s*nolint|"
+    r"//\s*swiftlint:disable|//\s*prettier-ignore)"
 )
+REGEX_CODE_COMMENTE = re.compile(
+    r"^\s*(?:#|//|/\*+|\*)\s*"
+    r"(def |class |return |if |elif |else|for |while |import |from |"
+    r"function |const |let |var |public |private |protected |static |"
+    r"print\(|console\.|[A-Za-z_$][\w$]*\s*[=:(])"
+)
+REGEX_DEBUT_FONCTION = re.compile(
+    r"^\s*(?:export\s+)?(?:default\s+)?(?:public\s+|private\s+|protected\s+|"
+    r"static\s+|async\s+|final\s+|override\s+|func\s+|fn\s+|function\s+|"
+    r"def\s+)*"
+    r"(?P<nom>[A-Za-z_$][\w$]*)\s*\([^;]*\)\s*(?:[:\-][^{;]*)?\{?\s*$"
+)
+MOTS_CLES = {
+    "if",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "return",
+    "else",
+    "do",
+    "try",
+    "with",
+    "sizeof",
+    "typeof",
+    "new",
+    "delete",
+    "throw",
+}
 
 
-def fichiers_python(racine, exclusions):
-    for chemin in sorted(Path(racine).rglob("*.py")):
-        parties = set(chemin.parts)
-        if parties & exclusions:
+def fichiers(racine, exclusions, langues):
+    for chemin in sorted(racine.rglob("*")):
+        if not chemin.is_file():
             continue
-        yield chemin
+        if set(chemin.parts) & exclusions:
+            continue
+        langue = LANGAGES.get(chemin.suffix.lower())
+        if langue is None:
+            continue
+        if langues and langue not in langues:
+            continue
+        yield chemin, langue
 
 
 def lignes_utiles(lignes, debut, fin):
     """Lignes du corps hors signature, lignes vides et commentaires seuls."""
     corps = lignes[debut:fin]
-    return [
-        ligne
-        for ligne in corps
-        if ligne.strip() and not ligne.strip().startswith("#")
-    ]
+    retenues = []
+    for ligne in corps:
+        nue = ligne.strip()
+        if not nue:
+            continue
+        if nue.startswith(("#", "//", "/*", "*")):
+            continue
+        retenues.append(ligne)
+    return retenues
 
 
 def est_bool(node):
@@ -64,33 +136,27 @@ def est_bool(node):
         return isinstance(node.value, bool)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
         return True
-    if isinstance(node, ast.Compare):
-        return True
-    if isinstance(node, ast.BoolOp):
-        return all(est_bool(v) for v in node.values)
-    if isinstance(node, ast.Call):
+    if isinstance(node, (ast.Compare, ast.BoolOp, ast.Call)):
         return True
     return False
 
 
-def analyser_fichier(chemin, racine, max_lignes, max_colonnes):
+def analyser_python(chemin, relatif, max_lignes, max_colonnes):
     violations = []
     texte = chemin.read_text(encoding="utf-8", errors="replace")
     lignes = texte.splitlines()
-    relatif = str(chemin.relative_to(racine))
-
     try:
         tree = ast.parse(texte)
     except SyntaxError as erreur:
-        violations.append(
+        return [
             {
                 "regle": "syntaxe",
                 "fichier": relatif,
                 "ligne": erreur.lineno or 0,
+                "langue": "python",
                 "detail": f"fichier non analysable : {erreur.msg}",
             }
-        )
-        return violations, tree
+        ], None
 
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
@@ -101,6 +167,7 @@ def analyser_fichier(chemin, racine, max_lignes, max_colonnes):
                         "regle": "fonction_trop_longue",
                         "fichier": relatif,
                         "ligne": node.lineno,
+                        "langue": "python",
                         "detail": (
                             f"{node.name} : {len(utiles)} lignes utiles "
                             f"(max {max_lignes})"
@@ -116,14 +183,14 @@ def analyser_fichier(chemin, racine, max_lignes, max_colonnes):
                                     "regle": "predicat_non_booleen",
                                     "fichier": relatif,
                                     "ligne": sous.lineno,
+                                    "langue": "python",
                                     "detail": (
-                                        f"{node.name} renvoie une valeur non "
-                                        "booléenne"
+                                        f"{node.name} renvoie une valeur "
+                                        "non booléenne"
                                     ),
                                 }
                             )
                             break
-
         if isinstance(node, ast.If) and node.orelse:
             if node.body and isinstance(node.body[-1], ast.Return):
                 violations.append(
@@ -131,20 +198,133 @@ def analyser_fichier(chemin, racine, max_lignes, max_colonnes):
                         "regle": "else_apres_return",
                         "fichier": relatif,
                         "ligne": node.lineno,
+                        "langue": "python",
                         "detail": "else inutile après un return",
                     }
                 )
-
         if isinstance(node, ast.Compare) and len(node.ops) > 1:
             violations.append(
                 {
                     "regle": "comparaison_enchainee",
                     "fichier": relatif,
                     "ligne": node.lineno,
+                    "langue": "python",
                     "detail": "comparaison enchaînée",
                 }
             )
+    return violations, tree
 
+
+def retirer_chaines_et_commentaires(ligne):
+    resultat = []
+    guillemet = None
+    i = 0
+    while i < len(ligne):
+        caractere = ligne[i]
+        if guillemet:
+            if caractere == guillemet and ligne[i - 1] != "\\":
+                guillemet = None
+            continue
+        if caractere in "\"'`":
+            guillemet = caractere
+            continue
+        if ligne[i : i + 2] in ("//", "/*"):
+            break
+        resultat.append(caractere)
+        i += 1
+    return "".join(resultat)
+
+
+def blocs_non_python(lignes):
+    blocs = []
+    i = 0
+    while i < len(lignes):
+        correspondance = REGEX_DEBUT_FONCTION.match(lignes[i])
+        if not correspondance or correspondance.group("nom") in MOTS_CLES:
+            i += 1
+            continue
+        j = i
+        while j < len(lignes) and "{" not in lignes[j]:
+            if ";" in lignes[j]:
+                break
+            j += 1
+        if j >= len(lignes) or "{" not in lignes[j]:
+            i += 1
+            continue
+        profondeur = 0
+        ouvert = False
+        k = j
+        while k < len(lignes):
+            code = retirer_chaines_et_commentaires(lignes[k])
+            if "{" in code:
+                ouvert = True
+            profondeur += code.count("{") - code.count("}")
+            if ouvert and profondeur <= 0:
+                break
+            k += 1
+        blocs.append((correspondance.group("nom"), i + 1, k + 1))
+        i = k + 1
+    return blocs
+
+
+def blocs_end(lignes):
+    """Blocs délimités par end (Ruby, Lua), par heuristique d'imbrication."""
+    ouvertures = re.compile(
+        r"^\s*(def|if|unless|while|until|for|case|begin|class|module|do|"
+        r"function)\b"
+    )
+    blocs = []
+    i = 0
+    while i < len(lignes):
+        correspondance = re.match(
+            r"^\s*def\s+(?P<nom>[A-Za-z_]\w*[?!]?)", lignes[i]
+        )
+        if not correspondance:
+            i += 1
+            continue
+        profondeur = 0
+        k = i
+        while k < len(lignes):
+            code = retirer_chaines_et_commentaires(lignes[k])
+            if ouvertures.match(code):
+                profondeur += 1
+            profondeur -= len(re.findall(r"\bend\b", code))
+            if profondeur <= 0 and k > i:
+                break
+            k += 1
+        blocs.append((correspondance.group("nom"), i + 1, k + 1))
+        i = k + 1
+    return blocs
+
+
+def analyser_autre(chemin, relatif, langue, max_lignes, max_colonnes):
+    violations = []
+    lignes = chemin.read_text(encoding="utf-8", errors="replace").splitlines()
+    if langue in ("ruby", "lua"):
+        blocs = blocs_end(lignes)
+    else:
+        blocs = blocs_non_python(lignes)
+    for nom, debut, fin in blocs:
+        utiles = lignes_utiles(lignes, debut, fin)
+        if len(utiles) > max_lignes:
+            violations.append(
+                {
+                    "regle": "fonction_trop_longue",
+                    "fichier": relatif,
+                    "ligne": debut,
+                    "langue": langue,
+                    "detail": (
+                        f"{nom} : {len(utiles)} lignes utiles "
+                        f"(max {max_lignes}, heuristique à vérifier)"
+                    ),
+                }
+            )
+    return violations
+
+
+def analyser_lignes(chemin, relatif, langue, max_colonnes):
+    violations = []
+    lignes = chemin.read_text(encoding="utf-8", errors="replace").splitlines()
     for numero, ligne in enumerate(lignes, start=1):
         if len(ligne) > max_colonnes:
             violations.append(
@@ -152,16 +332,18 @@ def analyser_fichier(chemin, racine, max_lignes, max_colonnes):
                     "regle": "ligne_trop_longue",
                     "fichier": relatif,
                     "ligne": numero,
+                    "langue": langue,
                     "detail": f"{len(ligne)} colonnes (max {max_colonnes})",
                 }
             )
-        if REGEX_NOQA.search(ligne):
+        if REGEX_NOQA.search(ligne) or REGEX_SUPPRESSION.search(ligne):
             violations.append(
                 {
-                    "regle": "noqa",
+                    "regle": "suppression_linter",
                     "fichier": relatif,
                     "ligne": numero,
-                    "detail": "directive noqa interdite",
+                    "langue": langue,
+                    "detail": "directive de suppression interdite",
                 }
             )
         if REGEX_CODE_COMMENTE.match(ligne):
@@ -170,16 +352,16 @@ def analyser_fichier(chemin, racine, max_lignes, max_colonnes):
                     "regle": "code_commente",
                     "fichier": relatif,
                     "ligne": numero,
+                    "langue": langue,
                     "detail": "ligne de code commentée, à vérifier",
                 }
             )
+    return violations
 
-    return violations, tree
 
-
-def modules_locaux(racine):
+def modules_python(racine, exclusions):
     modules = {}
-    for chemin in fichiers_python(racine, EXCLUS_PAR_DEFAUT):
+    for chemin, langue in fichiers(racine, exclusions, {"python"}):
         nom = chemin.stem
         modules.setdefault(nom, set())
         try:
@@ -194,10 +376,9 @@ def modules_locaux(racine):
                     modules[nom].add(alias.name.split(".")[0])
             if isinstance(node, ast.ImportFrom) and node.module:
                 modules[nom].add(node.module.split(".")[0])
-    connus = {
+    return {
         n: {d for d in deps if d in modules} for n, deps in modules.items()
     }
-    return connus
 
 
 def chercher_cycles(graphe):
@@ -253,13 +434,14 @@ def fonctions_mortes(racine, arbres):
                     "regle": "fonction_morte",
                     "fichier": str(chemin.relative_to(racine)),
                     "ligne": node.lineno,
+                    "langue": "python",
                     "detail": f"{node.name} n'est jamais appelée, à vérifier",
                 }
             )
     return mortes
 
 
-def rapport_markdown(racine, violations, cycles, total_fichiers):
+def rapport_markdown(racine, violations, cycles, total, langues):
     par_regle = {}
     for violation in violations:
         par_regle.setdefault(violation["regle"], []).append(violation)
@@ -268,6 +450,7 @@ def rapport_markdown(racine, violations, cycles, total_fichiers):
         "fonction_trop_longue",
         "else_apres_return",
         "comparaison_enchainee",
+        "suppression_linter",
         "noqa",
         "predicat_non_booleen",
         "fonction_morte",
@@ -279,7 +462,10 @@ def rapport_markdown(racine, violations, cycles, total_fichiers):
         "# Audit des règles",
         "",
         f"Dépôt : `{racine}`",
-        f"Fichiers Python analysés : {total_fichiers}",
+        f"Fichiers analysés : {total}",
+        "Langages : " + ", ".join(sorted(langues))
+        if langues
+        else "Langages : aucun",
         f"Violations : {len(violations)}",
         "",
     ]
@@ -292,7 +478,7 @@ def rapport_markdown(racine, violations, cycles, total_fichiers):
         for violation in groupe:
             lignes.append(
                 f"- `{violation['fichier']}:{violation['ligne']}` "
-                f"{violation['detail']}"
+                f"[{violation.get('langue', '?')}] {violation['detail']}"
             )
         lignes.append("")
     if cycles:
@@ -313,37 +499,56 @@ def main():
     parseur.add_argument("--max-colonnes", type=int, default=79)
     parseur.add_argument("--format", choices=("md", "json"), default="md")
     parseur.add_argument("--sortie")
-    parseur.add_argument(
-        "--exclure",
-        nargs="*",
-        default=[],
-        help="dossiers supplémentaires à ignorer",
-    )
+    parseur.add_argument("--langues", default="")
+    parseur.add_argument("--exclure", nargs="*", default=[])
     arguments = parseur.parse_args()
 
     racine = Path(arguments.racine).resolve()
     exclusions = EXCLUS_PAR_DEFAUT | set(arguments.exclure)
+    filtre = {
+        langue.strip()
+        for langue in arguments.langues.split(",")
+        if langue.strip()
+    } or None
 
     violations = []
     arbres = {}
-    fichiers = 0
-    for chemin in fichiers_python(racine, exclusions):
-        fichiers += 1
-        trouves, tree = analyser_fichier(
-            chemin, racine, arguments.max_lignes, arguments.max_colonnes
+    langues_vues = set()
+    total = 0
+    for chemin, langue in fichiers(racine, exclusions, filtre):
+        total += 1
+        langues_vues.add(langue)
+        relatif = str(chemin.relative_to(racine))
+        if langue == "python":
+            trouvees, tree = analyser_python(
+                chemin, relatif, arguments.max_lignes, arguments.max_colonnes
+            )
+            violations.extend(trouvees)
+            if tree is not None:
+                arbres[chemin] = tree
+        else:
+            violations.extend(
+                analyser_autre(
+                    chemin,
+                    relatif,
+                    langue,
+                    arguments.max_lignes,
+                    arguments.max_colonnes,
+                )
+            )
+        violations.extend(
+            analyser_lignes(chemin, relatif, langue, arguments.max_colonnes)
         )
-        violations.extend(trouves)
-        if tree is not None:
-            arbres[chemin] = tree
 
     violations.extend(fonctions_mortes(racine, arbres))
-    cycles = chercher_cycles(modules_locaux(racine))
+    cycles = chercher_cycles(modules_python(racine, exclusions))
 
     if arguments.format == "json":
         contenu = json.dumps(
             {
                 "racine": str(racine),
-                "fichiers": fichiers,
+                "fichiers": total,
+                "langues": sorted(langues_vues),
                 "violations": violations,
                 "cycles": cycles,
             },
@@ -351,14 +556,15 @@ def main():
             indent=2,
         )
     else:
-        contenu = rapport_markdown(racine, violations, cycles, fichiers)
+        contenu = rapport_markdown(
+            racine, violations, cycles, total, langues_vues
+        )
 
     if arguments.sortie:
         Path(arguments.sortie).write_text(contenu, encoding="utf-8")
         print(f"Rapport écrit dans {arguments.sortie}")
     else:
         print(contenu)
-
     return 0
 
 

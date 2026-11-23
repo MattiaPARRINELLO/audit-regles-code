@@ -1,8 +1,8 @@
 # Règles de code à faire respecter
 
 Ces règles viennent d'un cadre pédagogique strict. Elles s'appliquent à tout
-fichier Python du dépôt audité. Chaque règle indique comment la détecter et ce
-qui compte comme violation.
+fichier de code du dépôt audité, quel que soit le langage. Chaque règle indique
+comment la détecter et ce qui compte comme violation.
 
 ## 1. Prédicats en gardes successives
 
@@ -39,12 +39,23 @@ return autre_valeur
 
 Détection : `scripts/audit_regles.py`, règle `else_apres_return`.
 
-## 4. Pas de `# noqa`
+## 4. Pas de directives de suppression
 
-Aucune directive `noqa`. Quand une règle de linter contredit le style imposé,
-on désactive la règle dans la configuration du linter, pas ligne par ligne.
+Aucune directive qui fait taire un linter. Selon l'écosystème :
 
-Détection : règle `noqa`.
+| Langage | À refuser |
+|---|---|
+| Python | `# noqa`, `# type: ignore`, `# pylint: disable` |
+| JavaScript, TypeScript | `// eslint-disable`, `// @ts-ignore`, `// @ts-expect-error` |
+| Go | `//nolint` |
+| Ruby | `# rubocop:disable` |
+| Swift | `// swiftlint:disable` |
+| Tout langage | `// prettier-ignore` |
+
+Quand une règle de linter contredit le style imposé, on désactive la règle dans
+la configuration du linter, pas ligne par ligne.
+
+Détection : règle `suppression_linter`.
 
 ## 5. Pas de comparaisons enchaînées
 
@@ -75,6 +86,10 @@ Détection : règle `fonction_trop_longue`.
 | `demander_` | obtient une saisie déjà valide |
 | `*_valide` | prédicat qui renvoie un booléen |
 | `compter_`, `tirer_`, `creer_`, `copier_`, `calculer_` | action explicite |
+
+Ce tableau vient d'un cadre francophone. Dans un autre dépôt, appliquer les
+conventions équivalentes du projet (verbe à l'infinitif, préfixe métier,
+prédicat nommé `is_` ou `has_`).
 
 Règles associées :
 
@@ -131,7 +146,7 @@ Détection : règle `fonction_morte` et les linters du projet.
 ## 14. Style et outillage
 
 - Largeur de ligne alignée sur la configuration du projet (79 colonnes dans les
-  projets de ce cadre).
+  projets de ce cadre, souvent 80, 100 ou 120 ailleurs).
 - Aucun `print` de débogage oublié.
 - Les linters et le vérificateur de types du projet doivent passer sans erreur
   avant chaque commit.
@@ -153,3 +168,16 @@ Détection : règle `fonction_morte` et les linters du projet.
 - Jamais de `git push` sans accord explicite.
 - Jamais de `git reset --hard`, `git clean -fd` ni de réécriture d'historique
   sans confirmation.
+
+## 17. Détection par langage
+
+| Langage | Méthode du script | Fiabilité |
+|---|---|---|
+| Python | AST | exacte |
+| JavaScript, TypeScript, Java, C, C++, C#, Go, Rust, PHP, Swift, Kotlin, Scala, Shell | accolades | heuristique |
+| Ruby, Lua | blocs `end` | heuristique |
+
+Les règles qui ne se mesurent pas automatiquement (nommage, ordre des fonctions,
+duplication, qualité des commentaires, responsabilité unique) se vérifient à la
+lecture du code, pas par le script. Une violation heuristique se confirme avant
+d'être corrigée.
