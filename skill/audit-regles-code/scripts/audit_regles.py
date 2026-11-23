@@ -78,11 +78,20 @@ REGEX_CODE_COMMENTE = re.compile(
     r"function |const |let |var |public |private |protected |static |"
     r"print\(|console\.|[A-Za-z_$][\w$]*\s*[=:(])"
 )
-REGEX_DEBUT_FONCTION = re.compile(
+REGEX_DECLARATION = re.compile(
     r"^\s*(?:export\s+)?(?:default\s+)?(?:public\s+|private\s+|protected\s+|"
-    r"static\s+|async\s+|final\s+|override\s+|func\s+|fn\s+|function\s+|"
-    r"def\s+)*"
-    r"(?P<nom>[A-Za-z_$][\w$]*)\s*\([^;]*\)\s*(?:[:\-][^{;]*)?\{?\s*$"
+    r"static\s+|async\s+|final\s+|override\s+)*"
+    r"(?:func|fn|function|def)\s+(?P<nom>[A-Za-z_$][\w$]*)\s*"
+    r"\([^)]*\)[^{;]*\{?\s*$"
+)
+REGEX_METHODE = re.compile(
+    r"^\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|"
+    r"final\s+|override\s+)*"
+    r"(?P<nom>[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{;]*)?\{?\s*$"
+)
+REGEX_FLECHE = re.compile(
+    r"^\s*(?:export\s+)?(?:const|let|var)\s+(?P<nom>[A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s*)?\([^)]*\)\s*(?::[^=]*)?=>"
 )
 MOTS_CLES = {
     "if",
@@ -239,7 +248,11 @@ def blocs_non_python(lignes):
     blocs = []
     i = 0
     while i < len(lignes):
-        correspondance = REGEX_DEBUT_FONCTION.match(lignes[i])
+        correspondance = (
+            REGEX_DECLARATION.match(lignes[i])
+            or REGEX_METHODE.match(lignes[i])
+            or REGEX_FLECHE.match(lignes[i])
+        )
         if not correspondance or correspondance.group("nom") in MOTS_CLES:
             i += 1
             continue
