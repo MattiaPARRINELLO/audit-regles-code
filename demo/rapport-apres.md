@@ -1,7 +1,7 @@
 # Audit des règles
 
 Dépôt : `/home/mattia/Documents/dev/audit-regles-code/demo/apres`
-Fichiers analysés : 1
+Fichiers analysés : 2
 Langages : python
 Violations : 0
 

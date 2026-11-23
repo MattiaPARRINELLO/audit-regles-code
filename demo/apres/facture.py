@@ -48,16 +48,13 @@ def calculer_total(prix, quantite, remise):
     return round(total, 2)
 
 
+def formater_article(designation, quantite, prix):
+    return (
+        f"{designation} x{quantite} a {prix} euros et un texte beaucoup trop "
+        "long pour la limite de colonnes"
+    )
+
+
 def afficher_facture(designation, total):
     print("Article :", designation)
     print("Total :", total)
-
-
-def main():
-    total = calculer_total(49.9, 2, 10)
-    afficher_facture("Chaise", total)
-    print(total)
-
-
-if __name__ == "__main__":
-    main()

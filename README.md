@@ -94,15 +94,16 @@ fonctions.
 
 ## Démonstration avant / après
 
-Un calcul de facture volontairement illisible, puis le même comportement en
-lisible. Les deux programmes affichent exactement la même chose.
+Un petit programme de facturation sur deux fichiers, `facture.py` et `main.py`,
+volontairement illisible, puis le même comportement en lisible. Les deux
+versions affichent exactement la même chose.
 
 ### Avant
 
-[demo/avant/exemple.py](demo/avant/exemple.py)
+[demo/avant/facture.py](demo/avant/facture.py)
 
 ```python
-def f(d, q, p, r, t):
+def calculer(d, q, p, r, t):
     if d != None:
         if q > 0:
             if p > 0:
@@ -113,10 +114,7 @@ def f(d, q, p, r, t):
                 x = x + 5
                 if x > 100:
                     x = x - 10
-                x = round(x, 2)
-                print("Article :", d)
-                print("Total :", x)
-                return x
+                return round(x, 2)
             else:
                 return 0
         else:
@@ -132,19 +130,19 @@ fonction_trop_longue     1
 else_apres_return        3
 comparaison_enchainee    1
 suppression_linter       1
-nommage_afficher         2
+nommage_afficher         1
 responsabilite_multiple  1
-fonction_morte           5
+fonction_morte           4
 duplication              2
 code_commente            2
 ligne_trop_longue        2
 ```
 
-20 violations au total.
+18 violations sur 2 fichiers.
 
 ### Après
 
-[demo/apres/exemple.py](demo/apres/exemple.py)
+[demo/apres/facture.py](demo/apres/facture.py)
 
 ```python
 TVA = 1.2
@@ -174,19 +172,26 @@ Aucune violation détectée.
 
 | Règle | Avant | Après |
 |---|---|---|
-| Responsabilité | `f` valide, calcule, formate et affiche | `calculer_total` appelle cinq fonctions nommées |
+| Responsabilité | `calculer` valide, calcule et renvoie | `calculer_total` appelle cinq fonctions nommées |
 | Validation imbriquée | trois `else` après `return` | gardes successives |
 | Comparaison enchaînée | `1 <= q <= 99` | deux gardes séparées |
 | Directive de suppression | `# noqa` | une constante et un paramètre nommés |
-| Nommage | `f`, `x`, `t`, `d` | `calculer_total`, `total`, `appliquer_tva`, `designation` |
+| Nommage | `f`, `x`, `t`, `d` | `calculer_total`, `total`, `designation` |
+| Fonction d'affichage qui renvoie | `afficher_facture` | affichage sans valeur de retour |
 | Constantes magiques | `1.2`, `5`, `100`, `10` | `TVA`, `FRAIS_FIXES`, `SEUIL_REMISE`, `REMISE_GRANDE_COMMANDE` |
-| Fonctions mortes | 5 | toutes utilisées |
-| Duplication | deux fonctions identiques | une seule fonction, puis suppression |
-| Code commenté | `ancien_calcul` | supprimé |
-| Lignes longues | deux lignes de 105 colonnes | f-string courte |
+| Fonctions mortes | 4 | toutes utilisées |
+| Duplication | deux fonctions identiques | une seule fonction |
+| Code commenté | `ancien_total` | supprimé |
+| Lignes longues | deux lignes de 105 colonnes | f-string découpée |
 
-Les deux versions produisent `Article : Chaise`, `Total : 102.78`, puis
-`102.78`.
+Les deux versions produisent :
+
+```
+Chaise x2 a 49.9 euros et un texte beaucoup trop long pour la limite de colonnes
+Article : Chaise
+Total : 102.78
+102.78
+```
 
 ## Langages pris en charge
 
