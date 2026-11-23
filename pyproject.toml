@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audit-regles-code"
+version = "0.3.0"
+description = "Audit multi-langage de règles de style strictes"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+audit-regles = "audit_regles:main"
+
+[tool.setuptools]
+package-dir = { "" = "skill/audit-regles-code/scripts" }
+py-modules = ["audit_regles"]
