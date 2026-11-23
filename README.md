@@ -112,6 +112,10 @@ amendes de retard, livres indisponibles, total et retards. La version « avant �
 fonctionne mais est illisible, la version « après » produit exactement la même
 sortie, répartie en modules.
 
+La version détaillée, fichier par fichier, avec tous les extraits de code, les
+violations ligne par ligne et la correspondance règle par règle, est dans
+[docs/exemple.md](docs/exemple.md).
+
 ### Avant
 
 Trois fichiers, `donnees.py`, `gestion.py` et `main.py`, et une fonction `f` qui
@@ -257,6 +261,7 @@ eslint, gofmt, cargo clippy, rubocop, php-cs-fixer, ktlint, swiftlint, shellchec
 ```
 .
 ├── README.md
+├── docs/exemple.md
 ├── pyproject.toml
 ├── .github/workflows/ci.yml
 ├── tests/test_audit.py
