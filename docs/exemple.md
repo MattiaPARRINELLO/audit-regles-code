@@ -99,7 +99,7 @@ def f(l, e):
 
 Ce que l'audit reproche à cette seule fonction :
 
-- 24 lignes utiles, au-delà de la limite de 10 ;
+- 33 lignes utiles, au-delà de la limite de 10 ;
 - elle affiche et renvoie trois valeurs, donc plusieurs responsabilités ;
 - `1 <= j <= 7` est une comparaison enchaînée ;
 - `0.2`, `0.5`, `7` et `15` sont des constantes magiques ;
@@ -340,7 +340,7 @@ diff /tmp/avant.txt /tmp/apres.txt
 | Règle | Avant | Après |
 |---|---|---|
 | Responsabilité unique | `f` affiche, calcule et renvoie trois valeurs | `main` orchestre, les modules calculent ou affichent |
-| Dix lignes utiles | `f` en fait 24 | `calculer_amende` en fait 5, `main` en fait 8 |
+| Dix lignes utiles | `f` en fait 33 | `calculer_amende` en fait 4, `main` en fait 7 |
 | Gardes explicites | `est_dispo` avec `else` après `return` | `est_disponible` avec une garde |
 | Comparaison non enchaînée | `1 <= j <= 7` | `jours <= JOURS_PLEIN_TARIF` |
 | Pas de directive de suppression | `# noqa` dans `aide` | fonction supprimée |
