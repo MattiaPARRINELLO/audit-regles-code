@@ -181,6 +181,16 @@ eslint, gofmt, cargo clippy, rubocop, php-cs-fixer, ktlint, swiftlint, shellchec
             └── corrections.md
 ```
 
+## Auto-audit du dépôt
+
+`demo/avant` est volontairement non conforme, c'est le sujet de la démonstration.
+Pour auditer le reste :
+
+```bash
+python3 skill/audit-regles-code/scripts/audit_regles.py skill
+python3 skill/audit-regles-code/scripts/audit_regles.py demo/apres
+```
+
 ## Limites
 
 - Python est le seul langage analysé par AST. Ailleurs, la longueur des fonctions
@@ -189,5 +199,8 @@ eslint, gofmt, cargo clippy, rubocop, php-cs-fixer, ktlint, swiftlint, shellchec
 - `fonction_morte` n'est détectée qu'en Python.
 - `code_commente` et `fonction_morte` sont des détections heuristiques, marquées
   « à vérifier » : une fonction peut être appelée par une chaîne ou un callback.
+- Le script d'analyse est un outil de diagnostic : ses propres fonctions
+  dépassent la limite de 10 lignes, car il privilégie la lisibilité de l'analyse.
+  Les règles de taille visent le code applicatif, pas l'outillage.
 - Les corrections qui changent le comportement ne sont jamais appliquées sans
   validation humaine.
