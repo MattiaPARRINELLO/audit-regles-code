@@ -1,7 +1,7 @@
 # Audit des règles de code
 
-Skill pour agent de code qui audite un dépôt Python contre un jeu de règles de
-style strictes, puis corrige chaque violation en détail.
+Skill pour agent de code qui audite un dépôt, quel que soit le langage, contre
+un jeu de règles de style strictes, puis corrige chaque violation en détail.
 
 - **Mode audit** : analyse seule, rapport classé par règle, aucune modification.
 - **Mode correction** : une correction à la fois, un commit par correction, sans
@@ -40,6 +40,8 @@ Le dossier `demo/` contient le même fichier dans deux états.
 
 ### Avant
 
+Exemple en Python ; les mêmes règles s'appliquent aux autres langages.
+
 [demo/avant/exemple.py](demo/avant/exemple.py)
 
 ```python
@@ -77,7 +79,7 @@ Rapport complet : [demo/rapport-avant.md](demo/rapport-avant.md)
 fonction_trop_longue    1
 else_apres_return       1
 comparaison_enchainee   1
-noqa                    1
+suppression_linter      1
 fonction_morte          2
 code_commente           2
 ```
@@ -129,6 +131,18 @@ Aucune violation détectée.
 | Code commenté | `ancienne_version` | supprimé |
 | Fonction morte | `calculer_total`, `ancien_affichage` | toutes appelées |
 
+## Langages pris en charge
+
+| Langage | Analyse |
+|---|---|
+| Python | AST, précise |
+| JavaScript, TypeScript, Java, C, C++, C#, Go, Rust, PHP, Swift, Kotlin, Scala, Shell | blocs par accolades, heuristique |
+| Ruby, Lua | blocs `end`, heuristique |
+
+Les règles structurelles (nommage, ordre, duplication, commentaires) se vérifient
+à la lecture pour tous les langages. Les linters du projet complètent : ruff,
+eslint, gofmt, cargo clippy, rubocop, php-cs-fixer, ktlint, swiftlint, shellcheck.
+
 ## Règles couvertes
 
 1. Prédicats en gardes successives, un `if` par règle, `return True` à la fin.
@@ -169,8 +183,11 @@ Aucune violation détectée.
 
 ## Limites
 
-- Le skill cible Python uniquement.
-- `fonction_morte` et `code_commente` sont des détections heuristiques, marquées
+- Python est le seul langage analysé par AST. Ailleurs, la longueur des fonctions
+  est estimée par comptage d'accolades ou de `end`, et marquée « heuristique à
+  vérifier ».
+- `fonction_morte` n'est détectée qu'en Python.
+- `code_commente` et `fonction_morte` sont des détections heuristiques, marquées
   « à vérifier » : une fonction peut être appelée par une chaîne ou un callback.
 - Les corrections qui changent le comportement ne sont jamais appliquées sans
   validation humaine.

@@ -1,7 +1,8 @@
 # Audit des règles
 
 Dépôt : `/home/mattia/Documents/dev/audit-regles-code/demo/apres`
-Fichiers Python analysés : 1
+Fichiers analysés : 1
+Langages : python
 Violations : 0
 
 Aucune violation détectée.
