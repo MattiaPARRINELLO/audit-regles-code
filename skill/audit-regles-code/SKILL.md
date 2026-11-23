@@ -34,6 +34,9 @@ vérifiées en lisant le code.
 
 - Ne jamais inventer une violation pour remplir le rapport. Une violation doit
   être citée avec fichier, ligne et règle.
+- Ne jamais compter les violations à l'œil sur une sortie affichée : les longs
+  rapports sont souvent tronqués en haut. Le nombre officiel vient de
+  `--summary` ou du JSON, jamais d'une lecture partielle.
 - Ne jamais modifier un test pour le faire passer.
 - Ne jamais changer le comportement du programme pendant une correction de
   style. Si la correction implique un changement de comportement, poser la
@@ -108,6 +111,21 @@ Puis, pour un rapport lisible directement :
 python3 "<dossier-du-skill>/scripts/audit_regles.py" <racine> --format md
 ```
 
+Le compte officiel, à utiliser dans la note, se lit ainsi et jamais autrement :
+
+```bash
+python3 "<dossier-du-skill>/scripts/audit_regles.py" <racine> --summary
+# violations=18 fichiers=2 langues=python
+```
+
+ou en JSON, qui reste la source de vérité :
+
+```bash
+python3 "<dossier-du-skill>/scripts/audit_regles.py" <racine> \
+  --format json --sortie /tmp/audit.json
+python3 -c "import json; print(len(json.load(open('/tmp/audit.json'))['violations']))"
+```
+
 Le script détecte : fonction trop longue, `else` après `return`, comparaison
 enchaînée, directive de suppression, code commenté, prédicat non booléen,
 fonction morte, cycle d'import, ligne trop longue, erreur de syntaxe.
@@ -179,7 +197,8 @@ Format attendu :
 - Date : <date>
 - Commit de départ : <sha court>
 - Fichiers analysés : <n>
-- Violations : <n>
+- Violations : <n, lu avec --summary ou le JSON>
+- Note : ce nombre est mesuré avant toute modification, pas après une première passe
 
 ## Violations par règle
 

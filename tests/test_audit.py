@@ -293,3 +293,10 @@ def test_desactiver_une_regle(tmp_path):
     ecrire(tmp_path, "p.py", PYTHON_MAL)
     trouvees = regles(tmp_path, "--desactiver", "ligne_trop_longue")
     assert "ligne_trop_longue" not in trouvees
+
+
+def test_resume_une_ligne(tmp_path):
+    ecrire(tmp_path, "p.py", PYTHON_MAL)
+    resultat = lancer(tmp_path, "--summary")
+    assert resultat.stdout.startswith("violations=")
+    assert "fichiers=" in resultat.stdout

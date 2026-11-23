@@ -950,6 +950,7 @@ def main():
     parseur.add_argument("--baseline")
     parseur.add_argument("--ecrire-baseline")
     parseur.add_argument("--check", action="store_true")
+    parseur.add_argument("--summary", action="store_true")
     parseur.add_argument(
         "--format", choices=("md", "json", "sarif"), default="md"
     )
@@ -992,8 +993,15 @@ def main():
     if arguments.sortie:
         Path(arguments.sortie).write_text(contenu, encoding="utf-8")
         print(f"Rapport écrit dans {arguments.sortie}")
-    else:
+    elif not arguments.summary:
         print(contenu)
+
+    if arguments.summary:
+        langues_texte = ",".join(sorted(langues)) or "-"
+        print(
+            f"violations={len(restantes)} fichiers={total} "
+            f"langues={langues_texte}"
+        )
 
     if arguments.check and (restantes or cycles):
         return 1
