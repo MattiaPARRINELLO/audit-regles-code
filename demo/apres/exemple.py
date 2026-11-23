@@ -1,11 +1,19 @@
-"""Même exemple après application des règles."""
+"""Facturation d'une commande, version lisible."""
+
+TVA = 1.2
+FRAIS_FIXES = 5
+SEUIL_REMISE = 100
+REMISE_GRANDE_COMMANDE = 10
+QUANTITE_MIN = 1
+QUANTITE_MAX = 99
 
 
-def calculer_total(prix, quantite, remise):
-    total = round(prix * quantite - remise + 3.5, 2)
-    if total < 0:
-        return 0
-    return total * 1.2 + 2
+def quantite_valide(quantite):
+    if quantite < QUANTITE_MIN:
+        return False
+    if quantite > QUANTITE_MAX:
+        return False
+    return True
 
 
 def prix_valide(prix):
@@ -14,19 +22,42 @@ def prix_valide(prix):
     return True
 
 
-def quantite_valide(quantite):
-    if quantite < 1:
-        return False
-    if quantite > 10:
-        return False
-    return True
+def calculer_brut(prix, quantite, remise):
+    return prix * quantite * (1 - remise / 100)
 
 
-def formater_total(total):
-    return f"Total : {total}"
+def appliquer_tva(total):
+    return total * TVA
+
+
+def appliquer_frais(total):
+    total = total + FRAIS_FIXES
+    if total <= SEUIL_REMISE:
+        return total
+    return total - REMISE_GRANDE_COMMANDE
+
+
+def calculer_total(prix, quantite, remise):
+    if not quantite_valide(quantite):
+        return 0
+    if not prix_valide(prix):
+        return 0
+    total = calculer_brut(prix, quantite, remise)
+    total = appliquer_tva(total)
+    total = appliquer_frais(total)
+    return round(total, 2)
+
+
+def afficher_facture(designation, total):
+    print("Article :", designation)
+    print("Total :", total)
+
+
+def main():
+    total = calculer_total(49.9, 2, 10)
+    afficher_facture("Chaise", total)
+    print(total)
 
 
 if __name__ == "__main__":
-    print(prix_valide(12))
-    print(quantite_valide(3))
-    print(formater_total(calculer_total(10, 2, 1)))
+    main()

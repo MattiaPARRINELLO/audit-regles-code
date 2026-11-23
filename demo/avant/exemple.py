@@ -1,41 +1,64 @@
-"""Exemple volontairement non conforme, pour la démonstration."""
+# def ancien_calcul(x):
+#     return x * 1.196
 
-# def ancienne_version(x):
-#     return x * 2
+import datetime
 
 
-def calculer_total(prix, quantite, remise):
-    total = prix * quantite
-    total = total - remise
-    total = total + 2.5
-    total = total + 1.0
-    total = round(total, 2)
-    if total < 0:
+def f(d, q, p, r, t):
+    if d != None:
+        if q > 0:
+            if p > 0:
+                x = p * q
+                x = x - (x * r / 100)
+                if t == True:
+                    x = x * 1.2
+                x = x + 5
+                if x > 100:
+                    x = x - 10
+                x = round(x, 2)
+                print("Article :", d)
+                print("Total :", x)
+                return x
+            else:
+                return 0
+        else:
+            return 0
+    else:
         return 0
-    total = total * 1.2
-    total = total + 3
-    total = total - 1
-    return total
 
 
-def prix_valide(prix):
-    if prix > 0:
+def valide_q(q):
+    if 1 <= q <= 99:
         return True
     else:
         return False
 
 
-def quantite_valide(quantite):
-    if 1 <= quantite <= 10:
+def valide_p(p):
+    if p > 0:
         return True
-    return False
+    else:
+        return False
 
 
-def ancien_affichage(total):
-    texte = f"Total : {total}"  # noqa: F841
-    return texte
+def afficher_article(d, q, p):
+    a = d
+    b = q
+    c = p
+    return f"{a} x{b} a {c} euros et ce texte est vraiment beaucoup trop long pour la limite de colonnes"
+
+
+def afficher_article_bis(d, q, p):
+    a = d
+    b = q
+    c = p
+    return f"{a} x{b} a {c} euros et ce texte est vraiment beaucoup trop long pour la limite de colonnes"
+
+
+def vieux_format(x):
+    y = x  # noqa
+    return y
 
 
 if __name__ == "__main__":
-    print(prix_valide(12))
-    print(quantite_valide(3))
+    print(f("Chaise", 2, 49.9, 10, True))

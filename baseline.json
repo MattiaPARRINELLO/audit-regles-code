@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "empreintes": [
+    "code_commente|p.py|ligne de code commentée, à vérifier",
+    "comparaison_enchainee|p.py|comparaison enchaînée",
+    "else_apres_return|p.py|else inutile après un return",
+    "fonction_trop_longue|p.py|calculer : 11 lignes utiles (max 10)",
+    "suppression_linter|p.py|directive de suppression interdite"
+  ]
+}

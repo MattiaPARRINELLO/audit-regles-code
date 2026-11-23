@@ -94,82 +94,74 @@ fonctions.
 
 ## Démonstration avant / après
 
-Le dossier `demo/` contient le même fichier dans deux états.
+Un calcul de facture volontairement illisible, puis le même comportement en
+lisible. Les deux programmes affichent exactement la même chose.
 
 ### Avant
-
-Exemple en Python ; les mêmes règles s'appliquent aux autres langages.
 
 [demo/avant/exemple.py](demo/avant/exemple.py)
 
 ```python
-# def ancienne_version(x):
-#     return x * 2
-
-
-def calculer_total(prix, quantite, remise):
-    total = prix * quantite
-    total = total - remise
-    ...
-
-
-def prix_valide(prix):
-    if prix > 0:
-        return True
+def f(d, q, p, r, t):
+    if d != None:
+        if q > 0:
+            if p > 0:
+                x = p*q
+                x = x - (x*r/100)
+                if t == True:
+                    x = x*1.2
+                x = x + 5
+                if x > 100:
+                    x = x - 10
+                x = round(x, 2)
+                print("Article :", d)
+                print("Total :", x)
+                return x
+            else:
+                return 0
+        else:
+            return 0
     else:
-        return False
-
-
-def quantite_valide(quantite):
-    if 1 <= quantite <= 10:
-        return True
-    return False
-
-
-def ancien_affichage(total):
-    texte = f"Total : {total}"  # noqa: F841
-    return texte
+        return 0
 ```
 
 Rapport complet : [demo/rapport-avant.md](demo/rapport-avant.md)
 
 ```
-fonction_trop_longue    1
-else_apres_return       1
-comparaison_enchainee   1
-suppression_linter      1
-fonction_morte          2
-code_commente           2
+fonction_trop_longue     1
+else_apres_return        3
+comparaison_enchainee    1
+suppression_linter       1
+nommage_afficher         2
+responsabilite_multiple  1
+fonction_morte           5
+duplication              2
+code_commente            2
+ligne_trop_longue        2
 ```
+
+20 violations au total.
 
 ### Après
 
 [demo/apres/exemple.py](demo/apres/exemple.py)
 
 ```python
+TVA = 1.2
+FRAIS_FIXES = 5
+SEUIL_REMISE = 100
+REMISE_GRANDE_COMMANDE = 10
+
+
 def calculer_total(prix, quantite, remise):
-    total = round(prix * quantite - remise + 3.5, 2)
-    if total < 0:
+    if not quantite_valide(quantite):
         return 0
-    return total * 1.2 + 2
-
-
-def prix_valide(prix):
-    if prix <= 0:
-        return False
-    return True
-
-
-def quantite_valide(quantite):
-    if quantite < 1:
-        return False
-    if quantite > 10:
-        return False
-    return True
-
-
-def formater_total(total):
-    return f"Total : {total}"
+    if not prix_valide(prix):
+        return 0
+    total = calculer_brut(prix, quantite, remise)
+    total = appliquer_tva(total)
+    total = appliquer_frais(total)
+    return round(total, 2)
 ```
 
 Rapport complet : [demo/rapport-apres.md](demo/rapport-apres.md)
@@ -182,12 +174,19 @@ Aucune violation détectée.
 
 | Règle | Avant | Après |
 |---|---|---|
-| Longueur | `calculer_total` faisait 11 lignes utiles | 5 lignes utiles |
-| `else` après `return` | `prix_valide` | retour direct |
-| Comparaison enchaînée | `1 <= quantite <= 10` | deux gardes séparées |
-| `# noqa` | `ancien_affichage` | supprimé |
-| Code commenté | `ancienne_version` | supprimé |
-| Fonction morte | `calculer_total`, `ancien_affichage` | toutes appelées |
+| Responsabilité | `f` valide, calcule, formate et affiche | `calculer_total` appelle cinq fonctions nommées |
+| Validation imbriquée | trois `else` après `return` | gardes successives |
+| Comparaison enchaînée | `1 <= q <= 99` | deux gardes séparées |
+| Directive de suppression | `# noqa` | une constante et un paramètre nommés |
+| Nommage | `f`, `x`, `t`, `d` | `calculer_total`, `total`, `appliquer_tva`, `designation` |
+| Constantes magiques | `1.2`, `5`, `100`, `10` | `TVA`, `FRAIS_FIXES`, `SEUIL_REMISE`, `REMISE_GRANDE_COMMANDE` |
+| Fonctions mortes | 5 | toutes utilisées |
+| Duplication | deux fonctions identiques | une seule fonction, puis suppression |
+| Code commenté | `ancien_calcul` | supprimé |
+| Lignes longues | deux lignes de 105 colonnes | f-string courte |
+
+Les deux versions produisent `Article : Chaise`, `Total : 102.78`, puis
+`102.78`.
 
 ## Langages pris en charge
 
