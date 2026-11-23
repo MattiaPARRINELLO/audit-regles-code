@@ -107,72 +107,78 @@ fonctions.
 
 ## Démonstration avant / après
 
-Un petit programme de facturation sur deux fichiers, `facture.py` et `main.py`,
-volontairement illisible, puis le même comportement en lisible. Les deux
-versions affichent exactement la même chose.
+Un rapport de bibliothèque réaliste, sur trois fichiers : livres, emprunts,
+amendes de retard, livres indisponibles, total et retards. La version « avant »
+fonctionne mais est illisible, la version « après » produit exactement la même
+sortie, répartie en modules.
 
 ### Avant
 
-[demo/avant/facture.py](demo/avant/facture.py)
+Trois fichiers, `donnees.py`, `gestion.py` et `main.py`, et une fonction `f` qui
+fait tout.
+
+[demo/avant/gestion.py](demo/avant/gestion.py)
 
 ```python
-def calculer(d, q, p, r, t):
-    if d != None:
-        if q > 0:
-            if p > 0:
-                x = p*q
-                x = x - (x*r/100)
-                if t == True:
-                    x = x*1.2
-                x = x + 5
-                if x > 100:
-                    x = x - 10
-                return round(x, 2)
-            else:
-                return 0
+def f(l, e):
+    print("=== Livres ===")
+    for x in l:
+        ...
+    for y in e:
+        j = y["jours"]
+        if 1 <= j <= 7:
+            a = j*0.2
         else:
-            return 0
-    else:
-        return 0
+            if j > 7:
+                a = 7*0.2 + (j-7)*0.5
+            else:
+                a = 0
+        if a > 15:
+            a = 15
+        ...
+    return round(tot, 2), ret, v["titre"]
 ```
 
 Rapport complet : [demo/rapport-avant.md](demo/rapport-avant.md)
 
 ```
 fonction_trop_longue     1
-else_apres_return        3
+else_apres_return        1
 comparaison_enchainee    1
 suppression_linter       1
 nommage_afficher         1
 responsabilite_multiple  1
-fonction_morte           4
-duplication              2
+fonction_morte           6
+duplication              1
 code_commente            2
-ligne_trop_longue        2
+ligne_trop_longue        4
 ```
 
-18 violations sur 2 fichiers.
+19 violations sur 3 fichiers.
 
 ### Après
 
-[demo/apres/facture.py](demo/apres/facture.py)
+Sept fichiers, une responsabilité par module : `constantes`, `donnees`,
+`amendes`, `livres`, `emprunts`, `rapport` et `main`.
+
+[demo/apres/amendes.py](demo/apres/amendes.py)
 
 ```python
-TVA = 1.2
-FRAIS_FIXES = 5
-SEUIL_REMISE = 100
-REMISE_GRANDE_COMMANDE = 10
+def calculer_amende(jours):
+    if jours <= JOURS_PLEIN_TARIF:
+        return jours * TARIF_COURT
+    jours_tardifs = jours - JOURS_PLEIN_TARIF
+    return JOURS_PLEIN_TARIF * TARIF_COURT + jours_tardifs * TARIF_LONG
 
 
-def calculer_total(prix, quantite, remise):
-    if not quantite_valide(quantite):
-        return 0
-    if not prix_valide(prix):
-        return 0
-    total = calculer_brut(prix, quantite, remise)
-    total = appliquer_tva(total)
-    total = appliquer_frais(total)
-    return round(total, 2)
+def plafonner(amende):
+    if amende > PLAFOND_AMENDE:
+        return PLAFOND_AMENDE
+    return amende
+
+
+def amende_de(emprunt):
+    return round(plafonner(calculer_amende(emprunt["jours"])), 2)
 ```
 
 Rapport complet : [demo/rapport-apres.md](demo/rapport-apres.md)
@@ -185,25 +191,34 @@ Aucune violation détectée.
 
 | Règle | Avant | Après |
 |---|---|---|
-| Responsabilité | `calculer` valide, calcule et renvoie | `calculer_total` appelle cinq fonctions nommées |
-| Validation imbriquée | trois `else` après `return` | gardes successives |
-| Comparaison enchaînée | `1 <= q <= 99` | deux gardes séparées |
-| Directive de suppression | `# noqa` | une constante et un paramètre nommés |
-| Nommage | `f`, `x`, `t`, `d` | `calculer_total`, `total`, `designation` |
-| Fonction d'affichage qui renvoie | `afficher_facture` | affichage sans valeur de retour |
-| Constantes magiques | `1.2`, `5`, `100`, `10` | `TVA`, `FRAIS_FIXES`, `SEUIL_REMISE`, `REMISE_GRANDE_COMMANDE` |
-| Fonctions mortes | 4 | toutes utilisées |
-| Duplication | deux fonctions identiques | une seule fonction |
+| Responsabilité | `f` affiche, calcule et renvoie trois valeurs | `main` orchestre, chaque module calcule ou affiche |
+| Validation imbriquée | `else` après `return` dans `est_dispo` | garde simple |
+| Comparaison enchaînée | `1 <= j <= 7` | `jours <= JOURS_PLEIN_TARIF` |
+| Directive de suppression | `# noqa` | fonction supprimée |
+| Nommage | `f`, `x`, `y`, `a`, `b`, `j` | `calculer_amende`, `livre`, `emprunt`, `jours` |
+| Affichage qui renvoie | `afficher_total` | `afficher_livres` sans valeur de retour |
+| Constantes magiques | `0.2`, `0.5`, `7`, `15` | `TARIF_COURT`, `TARIF_LONG`, `JOURS_PLEIN_TARIF`, `PLAFOND_AMENDE` |
+| Fonctions mortes | 6 | toutes utilisées |
+| Duplication | `formater_livre` et `formater_livre_bis` | une seule fonction |
 | Code commenté | `ancien_total` | supprimé |
-| Lignes longues | deux lignes de 105 colonnes | f-string découpée |
+| Lignes longues | 4 | 0 |
 
 Les deux versions produisent :
 
 ```
-Chaise x2 a 49.9 euros et un texte beaucoup trop long pour la limite de colonnes
-Article : Chaise
-Total : 102.78
-102.78
+=== Livres ===
+Le Petit Prince (Saint-Exupéry, 1943) : disponible
+1984 (George Orwell, 1949) : disponible
+Dune (Frank Herbert, 1965) : indisponible
+
+=== Emprunts ===
+Alice a emprunté 1984 depuis 3 jours, amende : 0.60 €
+Bob a emprunté Le Petit Prince depuis 12 jours, amende : 3.90 €
+Chloé a emprunté Dune depuis 40 jours, amende : 15.00 €
+
+Total : 19.50 €
+Retards : 2
+Plus ancien : Le Petit Prince
 ```
 
 ## Langages pris en charge
@@ -247,10 +262,16 @@ eslint, gofmt, cargo clippy, rubocop, php-cs-fixer, ktlint, swiftlint, shellchec
 ├── tests/test_audit.py
 ├── demo/
 │   ├── avant/
-│   │   ├── facture.py
+│   │   ├── donnees.py
+│   │   ├── gestion.py
 │   │   └── main.py
 │   ├── apres/
-│   │   ├── facture.py
+│   │   ├── constantes.py
+│   │   ├── donnees.py
+│   │   ├── amendes.py
+│   │   ├── livres.py
+│   │   ├── emprunts.py
+│   │   ├── rapport.py
 │   │   └── main.py
 │   ├── rapport-avant.md
 │   └── rapport-apres.md

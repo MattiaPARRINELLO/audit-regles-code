@@ -1,8 +1,20 @@
-from facture import afficher_facture, calculer_total, formater_article
+"""Point d'entrée du rapport de bibliothèque."""
+
+from donnees import EMPRUNTS, LIVRES
+from emprunts import compter_retards, total_amendes
+from livres import plus_ancien
+from rapport import afficher_emprunts, afficher_livres
+
+
+def main():
+    afficher_livres(LIVRES)
+    afficher_emprunts(EMPRUNTS)
+    print()
+    total = total_amendes(EMPRUNTS)
+    print(f"Total : {total:.2f} €")
+    print(f"Retards : {compter_retards(EMPRUNTS)}")
+    print(f"Plus ancien : {plus_ancien(LIVRES)}")
 
 
 if __name__ == "__main__":
-    total = calculer_total(49.9, 2, 10)
-    print(formater_article("Chaise", 2, 49.9))
-    afficher_facture("Chaise", total)
-    print(total)
+    main()

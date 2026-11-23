@@ -1,8 +1,9 @@
-from facture import afficher_facture, calculer, formater
+from donnees import EMPRUNTS, LIVRES
+from gestion import f
 
 
 if __name__ == "__main__":
-    total = calculer("Chaise", 2, 49.9, 10, True)
-    print(formater("Chaise", 2, 49.9))
-    afficher_facture("Chaise", total)
-    print(total)
+    t, r, v = f(LIVRES, EMPRUNTS)
+    print("Total :", f"{t:.2f} €")
+    print("Retards :", r)
+    print("Plus ancien :", v)
