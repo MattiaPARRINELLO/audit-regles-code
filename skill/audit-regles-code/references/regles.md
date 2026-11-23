@@ -181,3 +181,18 @@ Les règles qui ne se mesurent pas automatiquement (nommage, ordre des fonctions
 duplication, qualité des commentaires, responsabilité unique) se vérifient à la
 lecture du code, pas par le script. Une violation heuristique se confirme avant
 d'être corrigée.
+
+## 18. Détections heuristiques complémentaires
+
+Ces règles sont mesurables en partie, avec des faux positifs possibles. Elles
+sont marquées « à vérifier » et se confirment à la lecture.
+
+| Règle | Détection | Ce qu'elle signale |
+|---|---|---|
+| `responsabilite_multiple` | retourne une valeur et appelle une sortie (`print`, `console`, `insert_one` ...) | fonction qui calcule et affiche ou persiste |
+| `nommage_afficher` | nom en `afficher_` et `return` avec valeur | un affichage ne doit rien renvoyer |
+| `ordre_fonctions` | appel d'une fonction définie plus bas | ordre non descendant, à activer via `"ordre": true` |
+| `duplication` | fenêtres de lignes normalisées répétées | bloc à mutualiser |
+
+La duplication ignore les fenêtres composées d'une seule ligne répétée, pour ne
+pas signaler des séries d'incréments identiques.

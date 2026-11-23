@@ -2,22 +2,24 @@
 """Audit multi-langage d'un dépôt contre les règles de style du projet.
 
 Python est analysé par AST (précis). Les autres langages sont analysés par
-heuristiques : longueur des blocs, lignes trop longues, directives de
-suppression, code commenté. Les règles structurelles non mesurables (nommage,
-ordre, duplication, commentaires) restent à la lecture de l'agent.
+heuristiques : longueur des blocs, lignes, directives de suppression, code
+commenté, responsabilités multiples, duplication. Les règles structurelles non
+mesurables (nommage applicatif, ordre, qualité des commentaires) restent à la
+lecture de l'agent.
 
-Sortie : Markdown sur stdout, ou fichier avec --sortie, ou JSON avec
---format json.
+Options principales : configuration par dépôt, baseline, code de sortie CI,
+sortie SARIF, heuristique SRP, détection de duplication.
 """
 
 import argparse
 import ast
+import hashlib
 import json
 import re
 import sys
 from pathlib import Path
 
-EXCLUS_PAR_DEFAUT = {
+EXCLUSIONS = {
     ".git",
     ".venv",
     "venv",
@@ -110,9 +112,82 @@ MOTS_CLES = {
     "delete",
     "throw",
 }
+EFFETS = re.compile(
+    r"(\bprint\(|\bconsole\.|\bfmt\.Print|\bputs\b|\bSystem\.out|"
+    r"\becho\b|\blogger\.|\bprintln!|\bputs\()"
+)
+
+CONFIG_DEFAUT = {
+    "max_lignes": 10,
+    "max_colonnes": 79,
+    "langues": [],
+    "exclure": [],
+    "regles_desactivees": [],
+    "srp": True,
+    "duplication": {"seuil_lignes": 4, "min_occurrences": 2},
+    "ordre": False,
+    "baseline": None,
+}
+
+NOM_FICHIER_CONFIG = ".audit-regles.json"
 
 
-def fichiers(racine, exclusions, langues):
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
+
+
+def lire_config(racine, chemin):
+    """Fusionne les valeurs par défaut, le fichier du dépôt et les options."""
+    config = json.loads(json.dumps(CONFIG_DEFAUT))
+    candidat = Path(chemin) if chemin else racine / NOM_FICHIER_CONFIG
+    if candidat.is_file():
+        charge = json.loads(candidat.read_text(encoding="utf-8"))
+        config.update(charge)
+    return config
+
+
+def fusionner_options(config, arguments):
+    """Les options de ligne de commande écrasent la configuration."""
+    for nom, attribut in (
+        ("max_lignes", "max_lignes"),
+        ("max_colonnes", "max_colonnes"),
+        ("baseline", "baseline"),
+    ):
+        valeur = getattr(arguments, attribut)
+        if valeur is not None:
+            config[nom] = valeur
+    if arguments.langues:
+        config["langues"] = [
+            langue.strip()
+            for langue in arguments.langues.split(",")
+            if langue.strip()
+        ]
+    if arguments.exclure:
+        config["exclure"] = list(config["exclure"]) + list(arguments.exclure)
+    if arguments.desactiver:
+        config["regles_desactivees"] = list(config["regles_desactivees"]) + [
+            regle.strip()
+            for regle in arguments.desactiver.split(",")
+            if regle.strip()
+        ]
+    if arguments.srp is not None:
+        config["srp"] = arguments.srp
+    if arguments.duplication is not None:
+        config["duplication"]["active"] = arguments.duplication
+    if arguments.ordre is not None:
+        config["ordre"] = arguments.ordre
+    return config
+
+
+# --------------------------------------------------------------------------
+# Parcours des fichiers
+# --------------------------------------------------------------------------
+
+
+def fichiers(racine, config):
+    exclusions = EXCLUSIONS | set(config["exclure"])
+    langues = set(config["langues"])
     for chemin in sorted(racine.rglob("*")):
         if not chemin.is_file():
             continue
@@ -128,9 +203,8 @@ def fichiers(racine, exclusions, langues):
 
 def lignes_utiles(lignes, debut, fin):
     """Lignes du corps hors signature, lignes vides et commentaires seuls."""
-    corps = lignes[debut:fin]
     retenues = []
-    for ligne in corps:
+    for ligne in lignes[debut:fin]:
         nue = ligne.strip()
         if not nue:
             continue
@@ -138,6 +212,11 @@ def lignes_utiles(lignes, debut, fin):
             continue
         retenues.append(ligne)
     return retenues
+
+
+# --------------------------------------------------------------------------
+# Analyse Python
+# --------------------------------------------------------------------------
 
 
 def est_bool(node):
@@ -150,56 +229,100 @@ def est_bool(node):
     return False
 
 
-def analyser_python(chemin, relatif, max_lignes, max_colonnes):
-    violations = []
-    texte = chemin.read_text(encoding="utf-8", errors="replace")
-    lignes = texte.splitlines()
-    try:
-        tree = ast.parse(texte)
-    except SyntaxError as erreur:
-        return [
-            {
-                "regle": "syntaxe",
-                "fichier": relatif,
-                "ligne": erreur.lineno or 0,
-                "langue": "python",
-                "detail": f"fichier non analysable : {erreur.msg}",
-            }
-        ], None
+def renvoie_une_valeur(node):
+    for sous in ast.walk(node):
+        if isinstance(sous, ast.Return) and sous.value is not None:
+            return True
+    return False
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            utiles = lignes_utiles(lignes, node.lineno, node.end_lineno)
-            if len(utiles) > max_lignes:
-                violations.append(
+
+def a_un_effet_de_bord(node):
+    for sous in ast.walk(node):
+        if not isinstance(sous, ast.Call):
+            continue
+        nom = ""
+        if isinstance(sous.func, ast.Name):
+            nom = sous.func.id
+        elif isinstance(sous.func, ast.Attribute):
+            nom = sous.func.attr
+        if nom in {"print", "input", "write", "insert_one"}:
+            return True
+        if nom.startswith(("enregistrer_", "logger")):
+            return True
+    return False
+
+
+def regle_longueur(node, lignes, relatif, config):
+    utiles = lignes_utiles(lignes, node.lineno, node.end_lineno)
+    if len(utiles) <= config["max_lignes"]:
+        return []
+    return [
+        {
+            "regle": "fonction_trop_longue",
+            "fichier": relatif,
+            "ligne": node.lineno,
+            "langue": "python",
+            "detail": (
+                f"{node.name} : {len(utiles)} lignes utiles "
+                f"(max {config['max_lignes']})"
+            ),
+        }
+    ]
+
+
+def regle_predicat(node, relatif):
+    if not node.name.endswith("_valide"):
+        return []
+    for sous in ast.walk(node):
+        if isinstance(sous, ast.Return) and sous.value is not None:
+            if not est_bool(sous.value):
+                return [
                     {
-                        "regle": "fonction_trop_longue",
+                        "regle": "predicat_non_booleen",
                         "fichier": relatif,
-                        "ligne": node.lineno,
+                        "ligne": sous.lineno,
                         "langue": "python",
-                        "detail": (
-                            f"{node.name} : {len(utiles)} lignes utiles "
-                            f"(max {max_lignes})"
-                        ),
+                        "detail": f"{node.name} renvoie une valeur non booléenne",
                     }
-                )
-            if node.name.endswith("_valide"):
-                for sous in ast.walk(node):
-                    if isinstance(sous, ast.Return) and sous.value is not None:
-                        if not est_bool(sous.value):
-                            violations.append(
-                                {
-                                    "regle": "predicat_non_booleen",
-                                    "fichier": relatif,
-                                    "ligne": sous.lineno,
-                                    "langue": "python",
-                                    "detail": (
-                                        f"{node.name} renvoie une valeur "
-                                        "non booléenne"
-                                    ),
-                                }
-                            )
-                            break
+                ]
+    return []
+
+
+def regle_nommage_afficher(node, relatif):
+    if not node.name.startswith("afficher_"):
+        return []
+    if not renvoie_une_valeur(node):
+        return []
+    return [
+        {
+            "regle": "nommage_afficher",
+            "fichier": relatif,
+            "ligne": node.lineno,
+            "langue": "python",
+            "detail": f"{node.name} renvoie une valeur, un affichage ne devrait pas",
+        }
+    ]
+
+
+def regle_srp_python(node, relatif, config):
+    if not config["srp"]:
+        return []
+    if not renvoie_une_valeur(node) or not a_un_effet_de_bord(node):
+        return []
+    return [
+        {
+            "regle": "responsabilite_multiple",
+            "fichier": relatif,
+            "ligne": node.lineno,
+            "langue": "python",
+            "detail": f"{node.name} renvoie une valeur et produit un affichage",
+        }
+    ]
+
+
+def regles_structure_python(tree, relatif):
+    violations = []
+    for node in ast.walk(tree):
         if isinstance(node, ast.If) and node.orelse:
             if node.body and isinstance(node.body[-1], ast.Return):
                 violations.append(
@@ -221,7 +344,40 @@ def analyser_python(chemin, relatif, max_lignes, max_colonnes):
                     "detail": "comparaison enchaînée",
                 }
             )
+    return violations
+
+
+def analyser_python(chemin, relatif, config):
+    violations = []
+    texte = chemin.read_text(encoding="utf-8", errors="replace")
+    lignes = texte.splitlines()
+    try:
+        tree = ast.parse(texte)
+    except SyntaxError as erreur:
+        return [
+            {
+                "regle": "syntaxe",
+                "fichier": relatif,
+                "ligne": erreur.lineno or 0,
+                "langue": "python",
+                "detail": f"fichier non analysable : {erreur.msg}",
+            }
+        ], None
+
+    violations.extend(regles_structure_python(tree, relatif))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        violations.extend(regle_longueur(node, lignes, relatif, config))
+        violations.extend(regle_predicat(node, relatif))
+        violations.extend(regle_nommage_afficher(node, relatif))
+        violations.extend(regle_srp_python(node, relatif, config))
     return violations, tree
+
+
+# --------------------------------------------------------------------------
+# Analyse générique (tous les autres langages)
+# --------------------------------------------------------------------------
 
 
 def retirer_chaines_et_commentaires(ligne):
@@ -244,7 +400,8 @@ def retirer_chaines_et_commentaires(ligne):
     return "".join(resultat)
 
 
-def blocs_non_python(lignes):
+def blocs_accolades(lignes):
+    """Blocs délimités par des accolades, par heuristique."""
     blocs = []
     i = 0
     while i < len(lignes):
@@ -310,16 +467,28 @@ def blocs_end(lignes):
     return blocs
 
 
-def analyser_autre(chemin, relatif, langue, max_lignes, max_colonnes):
+def blocs_de(langue, lignes):
+    if langue in ("ruby", "lua"):
+        return blocs_end(lignes)
+    return blocs_accolades(lignes)
+
+
+def regle_srp_bloc(corps):
+    texte = "\n".join(corps)
+    if not EFFETS.search(texte):
+        return False
+    if not re.search(r"\breturn\s+\S", texte):
+        return False
+    return True
+
+
+def analyser_blocs(chemin, relatif, langue, config):
     violations = []
     lignes = chemin.read_text(encoding="utf-8", errors="replace").splitlines()
-    if langue in ("ruby", "lua"):
-        blocs = blocs_end(lignes)
-    else:
-        blocs = blocs_non_python(lignes)
-    for nom, debut, fin in blocs:
+    for nom, debut, fin in blocs_de(langue, lignes):
+        corps = lignes[debut:fin]
         utiles = lignes_utiles(lignes, debut, fin)
-        if len(utiles) > max_lignes:
+        if len(utiles) > config["max_lignes"]:
             violations.append(
                 {
                     "regle": "fonction_trop_longue",
@@ -328,25 +497,35 @@ def analyser_autre(chemin, relatif, langue, max_lignes, max_colonnes):
                     "langue": langue,
                     "detail": (
                         f"{nom} : {len(utiles)} lignes utiles "
-                        f"(max {max_lignes}, heuristique à vérifier)"
+                        f"(max {config['max_lignes']}, heuristique à vérifier)"
                     ),
+                }
+            )
+        if config["srp"] and regle_srp_bloc(corps):
+            violations.append(
+                {
+                    "regle": "responsabilite_multiple",
+                    "fichier": relatif,
+                    "ligne": debut,
+                    "langue": langue,
+                    "detail": f"{nom} renvoie une valeur et produit un affichage",
                 }
             )
     return violations
 
 
-def analyser_lignes(chemin, relatif, langue, max_colonnes):
+def analyser_lignes(chemin, relatif, langue, config):
     violations = []
     lignes = chemin.read_text(encoding="utf-8", errors="replace").splitlines()
     for numero, ligne in enumerate(lignes, start=1):
-        if len(ligne) > max_colonnes:
+        if len(ligne) > config["max_colonnes"]:
             violations.append(
                 {
                     "regle": "ligne_trop_longue",
                     "fichier": relatif,
                     "ligne": numero,
                     "langue": langue,
-                    "detail": f"{len(ligne)} colonnes (max {max_colonnes})",
+                    "detail": f"{len(ligne)} colonnes (max {config['max_colonnes']})",
                 }
             )
         if REGEX_NOQA.search(ligne) or REGEX_SUPPRESSION.search(ligne):
@@ -372,9 +551,16 @@ def analyser_lignes(chemin, relatif, langue, max_colonnes):
     return violations
 
 
-def modules_python(racine, exclusions):
+# --------------------------------------------------------------------------
+# Graphe d'imports, fonctions mortes, ordre, duplication
+# --------------------------------------------------------------------------
+
+
+def modules_python(racine, config):
     modules = {}
-    for chemin, langue in fichiers(racine, exclusions, {"python"}):
+    for chemin, langue in fichiers(racine, config):
+        if langue != "python":
+            continue
         nom = chemin.stem
         modules.setdefault(nom, set())
         try:
@@ -439,50 +625,213 @@ def fonctions_mortes(racine, arbres):
     for chemin, node in definitions:
         if node.name.startswith("__") or node.name in ("main",):
             continue
-        if node.name.startswith("test_"):
+        if node.name.startswith("test_") or node.name in appels:
             continue
-        if node.name not in appels:
-            mortes.append(
+        mortes.append(
+            {
+                "regle": "fonction_morte",
+                "fichier": str(chemin.relative_to(racine)),
+                "ligne": node.lineno,
+                "langue": "python",
+                "detail": f"{node.name} n'est jamais appelée, à vérifier",
+            }
+        )
+    return mortes
+
+
+def ordre_fonctions(arbres, config, racine):
+    violations = []
+    if not config["ordre"]:
+        return violations
+    for chemin, tree in arbres.items():
+        positions = {
+            node.name: node.lineno
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            cible = appelle_plus_bas(node, positions)
+            if cible is None:
+                continue
+            violations.append(
                 {
-                    "regle": "fonction_morte",
+                    "regle": "ordre_fonctions",
                     "fichier": str(chemin.relative_to(racine)),
                     "ligne": node.lineno,
                     "langue": "python",
-                    "detail": f"{node.name} n'est jamais appelée, à vérifier",
+                    "detail": f"{node.name} appelle {cible}, défini plus bas",
                 }
             )
-    return mortes
+    return violations
+
+
+def appelle_plus_bas(node, positions):
+    for sous in ast.walk(node):
+        if not isinstance(sous, ast.Call):
+            continue
+        if not isinstance(sous.func, ast.Name):
+            continue
+        cible = positions.get(sous.func.id)
+        if cible is not None and cible > node.lineno:
+            return sous.func.id
+    return None
+
+
+def normaliser_ligne(ligne):
+    nue = ligne.strip()
+    if not nue or nue.startswith(("#", "//", "/*", "*")):
+        return ""
+    return re.sub(r"\s+", " ", nue)
+
+
+def chercher_duplication(textes, config):
+    reglage = config["duplication"]
+    if not reglage.get("active", True):
+        return []
+    taille = int(reglage.get("seuil_lignes", 4))
+    minimum = int(reglage.get("min_occurrences", 2))
+    occurrences = {}
+    for relatif, lignes in textes.items():
+        normalisees = [normaliser_ligne(ligne) for ligne in lignes]
+        for debut in range(len(normalisees) - taille + 1):
+            fenetre = normalisees[debut : debut + taille]
+            if sum(1 for ligne in fenetre if ligne) < taille:
+                continue
+            if len(set(fenetre)) == 1:
+                continue
+            cle = hashlib.sha1("\n".join(fenetre).encode()).hexdigest()
+            occurrences.setdefault(cle, []).append((relatif, debut + 1))
+    violations = []
+    deja_vus = set()
+    for cle, lieux in occurrences.items():
+        if len(lieux) < minimum or cle in deja_vus:
+            continue
+        deja_vus.add(cle)
+        premier = lieux[0]
+        violations.append(
+            {
+                "regle": "duplication",
+                "fichier": premier[0],
+                "ligne": premier[1],
+                "langue": "?",
+                "detail": (
+                    f"bloc de {taille} lignes répété {len(lieux)} fois, "
+                    f"par exemple en {lieux[1][0]}:{lieux[1][1]}"
+                ),
+            }
+        )
+    return violations
+
+
+# --------------------------------------------------------------------------
+# Baseline
+# --------------------------------------------------------------------------
+
+
+def empreinte(violation):
+    return "|".join(
+        (
+            violation["regle"],
+            violation["fichier"],
+            violation["detail"],
+        )
+    )
+
+
+def charger_baseline(chemin):
+    if not chemin:
+        return set()
+    fichier = Path(chemin)
+    if not fichier.is_file():
+        return set()
+    contenu = json.loads(fichier.read_text(encoding="utf-8"))
+    return set(contenu.get("empreintes", []))
+
+
+def ecrire_baseline(chemin, violations):
+    Path(chemin).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "empreintes": sorted({empreinte(v) for v in violations}),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def filtrer_baseline(violations, baseline):
+    return [v for v in violations if empreinte(v) not in baseline]
+
+
+# --------------------------------------------------------------------------
+# Rapports
+# --------------------------------------------------------------------------
+
+ORDRE_REGLES = [
+    "syntaxe",
+    "fonction_trop_longue",
+    "else_apres_return",
+    "comparaison_enchainee",
+    "suppression_linter",
+    "predicat_non_booleen",
+    "nommage_afficher",
+    "responsabilite_multiple",
+    "fonction_morte",
+    "ordre_fonctions",
+    "duplication",
+    "code_commente",
+    "ligne_trop_longue",
+    "cycle_import",
+]
+
+GRAVITES = {
+    "syntaxe": "haute",
+    "fonction_trop_longue": "moyenne",
+    "else_apres_return": "basse",
+    "comparaison_enchainee": "basse",
+    "suppression_linter": "moyenne",
+    "predicat_non_booleen": "moyenne",
+    "nommage_afficher": "basse",
+    "responsabilite_multiple": "moyenne",
+    "fonction_morte": "moyenne",
+    "ordre_fonctions": "basse",
+    "duplication": "moyenne",
+    "code_commente": "basse",
+    "ligne_trop_longue": "basse",
+    "cycle_import": "haute",
+}
 
 
 def rapport_markdown(racine, violations, cycles, total, langues):
     par_regle = {}
     for violation in violations:
         par_regle.setdefault(violation["regle"], []).append(violation)
-    ordre = [
-        "syntaxe",
-        "fonction_trop_longue",
-        "else_apres_return",
-        "comparaison_enchainee",
-        "suppression_linter",
-        "noqa",
-        "predicat_non_booleen",
-        "fonction_morte",
-        "code_commente",
-        "ligne_trop_longue",
-        "cycle_import",
-    ]
     lignes = [
         "# Audit des règles",
         "",
         f"Dépôt : `{racine}`",
         f"Fichiers analysés : {total}",
-        "Langages : " + ", ".join(sorted(langues))
-        if langues
-        else "Langages : aucun",
+        "Langages : " + (", ".join(sorted(langues)) or "aucun"),
         f"Violations : {len(violations)}",
         "",
+        "| Règle | Nombre | Gravité |",
+        "|---|---|---|",
     ]
-    for regle in ordre:
+    for regle in ORDRE_REGLES:
+        if regle in par_regle:
+            lignes.append(
+                f"| {regle} | {len(par_regle[regle])} | "
+                f"{GRAVITES.get(regle, 'basse')} |"
+            )
+    if cycles:
+        lignes.append(f"| cycle_import | {len(cycles)} | haute |")
+    lignes.append("")
+    for regle in ORDRE_REGLES:
         groupe = par_regle.get(regle)
         if not groupe:
             continue
@@ -505,79 +854,149 @@ def rapport_markdown(racine, violations, cycles, total, langues):
     return "\n".join(lignes)
 
 
-def main():
-    parseur = argparse.ArgumentParser(description=__doc__)
-    parseur.add_argument("racine", nargs="?", default=".")
-    parseur.add_argument("--max-lignes", type=int, default=10)
-    parseur.add_argument("--max-colonnes", type=int, default=79)
-    parseur.add_argument("--format", choices=("md", "json"), default="md")
-    parseur.add_argument("--sortie")
-    parseur.add_argument("--langues", default="")
-    parseur.add_argument("--exclure", nargs="*", default=[])
-    arguments = parseur.parse_args()
+def rapport_sarif(racine, violations):
+    regles = [
+        {"id": regle, "shortDescription": {"text": regle}}
+        for regle in ORDRE_REGLES
+    ]
+    resultats = []
+    for violation in violations:
+        resultats.append(
+            {
+                "ruleId": violation["regle"],
+                "level": "warning",
+                "message": {"text": violation["detail"]},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": violation["fichier"]},
+                            "region": {
+                                "startLine": max(violation["ligne"], 1)
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+    return json.dumps(
+        {
+            "version": "2.1.0",
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "audit-regles-code",
+                            "informationUri": str(racine),
+                            "rules": regles,
+                        }
+                    },
+                    "results": resultats,
+                }
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
 
-    racine = Path(arguments.racine).resolve()
-    exclusions = EXCLUS_PAR_DEFAUT | set(arguments.exclure)
-    filtre = {
-        langue.strip()
-        for langue in arguments.langues.split(",")
-        if langue.strip()
-    } or None
 
+# --------------------------------------------------------------------------
+# Programme principal
+# --------------------------------------------------------------------------
+
+
+def collecter(racine, config):
     violations = []
     arbres = {}
-    langues_vues = set()
+    textes = {}
+    langues = set()
     total = 0
-    for chemin, langue in fichiers(racine, exclusions, filtre):
+    for chemin, langue in fichiers(racine, config):
         total += 1
-        langues_vues.add(langue)
+        langues.add(langue)
         relatif = str(chemin.relative_to(racine))
+        textes[relatif] = chemin.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
         if langue == "python":
-            trouvees, tree = analyser_python(
-                chemin, relatif, arguments.max_lignes, arguments.max_colonnes
-            )
+            trouvees, tree = analyser_python(chemin, relatif, config)
             violations.extend(trouvees)
             if tree is not None:
                 arbres[chemin] = tree
         else:
-            violations.extend(
-                analyser_autre(
-                    chemin,
-                    relatif,
-                    langue,
-                    arguments.max_lignes,
-                    arguments.max_colonnes,
-                )
-            )
-        violations.extend(
-            analyser_lignes(chemin, relatif, langue, arguments.max_colonnes)
-        )
-
+            violations.extend(analyser_blocs(chemin, relatif, langue, config))
+        violations.extend(analyser_lignes(chemin, relatif, langue, config))
     violations.extend(fonctions_mortes(racine, arbres))
-    cycles = chercher_cycles(modules_python(racine, exclusions))
+    violations.extend(ordre_fonctions(arbres, config, racine))
+    violations.extend(chercher_duplication(textes, config))
+    cycles = chercher_cycles(modules_python(racine, config))
+    return violations, cycles, total, langues
+
+
+def main():
+    parseur = argparse.ArgumentParser(description=__doc__)
+    parseur.add_argument("racine", nargs="?", default=".")
+    parseur.add_argument("--config")
+    parseur.add_argument("--max-lignes", type=int)
+    parseur.add_argument("--max-colonnes", type=int)
+    parseur.add_argument("--langues")
+    parseur.add_argument("--exclure", nargs="*", default=[])
+    parseur.add_argument("--desactiver")
+    parseur.add_argument("--srp", action=argparse.BooleanOptionalAction)
+    parseur.add_argument(
+        "--duplication", action=argparse.BooleanOptionalAction
+    )
+    parseur.add_argument("--ordre", action=argparse.BooleanOptionalAction)
+    parseur.add_argument("--baseline")
+    parseur.add_argument("--ecrire-baseline")
+    parseur.add_argument("--check", action="store_true")
+    parseur.add_argument(
+        "--format", choices=("md", "json", "sarif"), default="md"
+    )
+    parseur.add_argument("--sortie")
+    arguments = parseur.parse_args()
+
+    racine = Path(arguments.racine).resolve()
+    config = fusionner_options(
+        lire_config(racine, arguments.config), arguments
+    )
+
+    violations, cycles, total, langues = collecter(racine, config)
+    desactivees = set(config["regles_desactivees"])
+    violations = [v for v in violations if v["regle"] not in desactivees]
+
+    if arguments.ecrire_baseline:
+        ecrire_baseline(arguments.ecrire_baseline, violations)
+
+    restantes = filtrer_baseline(
+        violations, charger_baseline(config["baseline"])
+    )
 
     if arguments.format == "json":
         contenu = json.dumps(
             {
                 "racine": str(racine),
                 "fichiers": total,
-                "langues": sorted(langues_vues),
-                "violations": violations,
+                "langues": sorted(langues),
+                "violations": restantes,
                 "cycles": cycles,
             },
             ensure_ascii=False,
             indent=2,
         )
+    elif arguments.format == "sarif":
+        contenu = rapport_sarif(racine, restantes)
     else:
-        contenu = rapport_markdown(
-            racine, violations, cycles, total, langues_vues
-        )
+        contenu = rapport_markdown(racine, restantes, cycles, total, langues)
 
     if arguments.sortie:
         Path(arguments.sortie).write_text(contenu, encoding="utf-8")
         print(f"Rapport écrit dans {arguments.sortie}")
     else:
         print(contenu)
+
+    if arguments.check and (restantes or cycles):
+        return 1
     return 0
 
 

@@ -19,6 +19,14 @@ vérifiées en lisant le code.
 - Mode **audit** : analyse seule, rapport, aucune modification.
 - Mode **correction** : analyse, corrections appliquées une par une, un commit
   par correction, note avant/après.
+- **Configuration par dépôt** : un fichier `.audit-regles.json` fixe la largeur,
+  la taille maximale, les exclusions, les règles désactivées et les seuils.
+- **Baseline** : geler les violations existantes pour ne signaler que les
+  nouvelles.
+- **Intégration continue** : `--check` renvoie 1 si des violations restent, et
+  `--format sarif` s'importe dans GitHub.
+- **Issues** : en mode audit, il peut ouvrir une issue de synthèse et une
+  sous-issue par règle, après confirmation.
 - Dans les deux modes, il pose des questions quand une règle est ambiguë ou
   qu'une correction changerait le comportement.
 
@@ -61,6 +69,28 @@ chaque fichier.
 4. Lire `references/regles.md` pour la liste complète.
 5. Compter les fichiers et les fonctions pour dimensionner le travail.
 
+## Configuration du dépôt
+
+Créer `.audit-regles.json` à la racine si le dépôt a des besoins propres. Le
+script le lit automatiquement.
+
+```json
+{
+  "max_lignes": 10,
+  "max_colonnes": 79,
+  "langues": ["python", "javascript"],
+  "exclure": ["demo/avant", "migrations"],
+  "regles_desactivees": ["duplication"],
+  "srp": true,
+  "duplication": { "seuil_lignes": 4, "min_occurrences": 2 },
+  "ordre": false
+}
+```
+
+Priorité : valeurs par défaut, puis ce fichier, puis les options de la ligne de
+commande. Ne pas créer ce fichier sans demander si le dépôt n'en a pas : c'est
+une décision de projet.
+
 ## Étape 2 : audit automatique
 
 Le script du skill fait les détections déterministes. Le dossier du skill est
@@ -102,6 +132,32 @@ Compléter avec l'outillage du projet. Selon les langages détectés :
 | Shell | `shellcheck` |
 
 Ne lancer que les outils réellement installés et configurés par le projet.
+
+## Baseline et intégration continue
+
+Sur un dépôt existant, geler l'état avant de corriger.
+
+```bash
+python3 "<dossier-du-skill>/scripts/audit_regles.py" . \
+  --ecrire-baseline .audit-baseline.json
+
+python3 "<dossier-du-skill>/scripts/audit_regles.py" . \
+  --baseline .audit-baseline.json --check
+```
+
+La baseline compare des empreintes (règle, fichier, détail), pas les numéros de
+ligne, donc elle résiste aux décalages. `--check` renvoie 1 s'il reste une
+violation non gelée.
+
+Pour GitHub :
+
+```bash
+python3 "<dossier-du-skill>/scripts/audit_regles.py" . \
+  --format sarif --sortie audit.sarif --check
+```
+
+Puis l'upload avec `github/codeql-action/upload-sarif`. Ne pas activer `--check`
+sur un dépôt sans baseline : la CI échouerait dès le premier commit.
 
 Enfin, ouvrir les fichiers signalés et lire le contexte autour de chaque ligne.
 Le script signale des candidats, pas des verdicts : `fonction_morte` et
@@ -210,6 +266,61 @@ Répondre avec :
 - la liste des commits ;
 - les points laissés en suspens et la raison ;
 - une question si un choix reste à trancher.
+
+## Mode audit : ouvrir une issue
+
+Ne jamais créer d'issue sans confirmation explicite. Demander avec trois
+options : aucune, une issue de synthèse, une issue de synthèse plus une
+sous-issue par règle.
+
+Avant de créer :
+
+```bash
+gh auth status
+gh repo view --json nameWithOwner -q .nameWithOwner
+```
+
+Si `gh` est absent ou non authentifié, le dire et fournir le corps de l'issue à
+coller manuellement.
+
+### Issue de synthèse
+
+Titre : `Audit des règles : <n> violations`.
+
+Corps : tableau règle / nombre / gravité, liste des fichiers concernés, lien
+vers la note avant/après, et mention des sous-issues.
+
+```bash
+gh issue create --title "..." --body-file /tmp/issue-audit.md
+```
+
+### Sous-issues
+
+Une par règle, titre `Audit : <règle> (<n>)`, corps avec les `fichier:ligne` et
+le rappel de la recette dans `references/corrections.md`.
+
+```bash
+gh issue create --title "..." --body-file /tmp/issue-<regle>.md
+gh issue view <numero> --json id -q .id
+```
+
+Puis rattacher à l'issue parente :
+
+```bash
+gh api -X POST repos/<owner>/<repo>/issues/<parent>/sub_issues \
+  -F sub_issue_id=<id>
+```
+
+Si l'API répond 404 ou 422 (fonctionnalité indisponible), ajouter dans l'issue
+parente une liste de tâches avec les liens des issues créées, au lieu
+d'insister.
+
+### Règles à respecter
+
+- Ne jamais créer d'issue dans un dépôt qui n'est pas le remote du dossier.
+- Ne jamais créer d'issue si le dépôt est privé sans confirmation explicite.
+- Ne jamais modifier le code en mode audit.
+- Ne jamais fermer, assigner ou étiqueter une issue sans demande.
 
 ## Questions à poser en cours de route
 
