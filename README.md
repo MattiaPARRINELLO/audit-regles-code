@@ -59,6 +59,19 @@ Créer `.audit-regles.json` à la racine du dépôt audité :
 Priorité : valeurs par défaut, puis ce fichier, puis les options de la ligne de
 commande.
 
+## Compter sans se tromper
+
+Un rapport long peut être tronqué à l'affichage, et un total lu à l'œil est
+souvent faux. Le compte officiel tient en une ligne :
+
+```bash
+audit-regles . --summary
+# violations=18 fichiers=2 langues=python
+```
+
+Le JSON (`--format json`) reste la source de vérité pour un traitement
+automatique.
+
 ## Baseline et CI
 
 Geler l'existant, puis bloquer seulement les nouvelles violations :
