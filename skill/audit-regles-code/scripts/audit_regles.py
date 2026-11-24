@@ -400,9 +400,11 @@ def retirer_chaines_et_commentaires(ligne):
         if guillemet:
             if caractere == guillemet and ligne[i - 1] != "\\":
                 guillemet = None
+            i += 1
             continue
         if caractere in "\"'`":
             guillemet = caractere
+            i += 1
             continue
         if ligne[i : i + 2] in ("//", "/*"):
             break
