@@ -159,17 +159,13 @@ def fusionner_options(config, arguments):
             config[nom] = valeur
     if arguments.langues:
         config["langues"] = [
-            langue.strip()
-            for langue in arguments.langues.split(",")
-            if langue.strip()
+            langue.strip() for langue in arguments.langues.split(",") if langue.strip()
         ]
     if arguments.exclure:
         config["exclure"] = list(config["exclure"]) + list(arguments.exclure)
     if arguments.desactiver:
         config["regles_desactivees"] = list(config["regles_desactivees"]) + [
-            regle.strip()
-            for regle in arguments.desactiver.split(",")
-            if regle.strip()
+            regle.strip() for regle in arguments.desactiver.split(",") if regle.strip()
         ]
     if arguments.srp is not None:
         config["srp"] = arguments.srp
@@ -446,9 +442,7 @@ def blocs_end(lignes):
     blocs = []
     i = 0
     while i < len(lignes):
-        correspondance = re.match(
-            r"^\s*def\s+(?P<nom>[A-Za-z_]\w*[?!]?)", lignes[i]
-        )
+        correspondance = re.match(r"^\s*def\s+(?P<nom>[A-Za-z_]\w*[?!]?)", lignes[i])
         if not correspondance:
             i += 1
             continue
@@ -564,9 +558,7 @@ def modules_python(racine, config):
         nom = chemin.stem
         modules.setdefault(nom, set())
         try:
-            tree = ast.parse(
-                chemin.read_text(encoding="utf-8", errors="replace")
-            )
+            tree = ast.parse(chemin.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
             continue
         for node in tree.body:
@@ -575,9 +567,7 @@ def modules_python(racine, config):
                     modules[nom].add(alias.name.split(".")[0])
             if isinstance(node, ast.ImportFrom) and node.module:
                 modules[nom].add(node.module.split(".")[0])
-    return {
-        n: {d for d in deps if d in modules} for n, deps in modules.items()
-    }
+    return {n: {d for d in deps if d in modules} for n, deps in modules.items()}
 
 
 def chercher_cycles(graphe):
@@ -856,8 +846,7 @@ def rapport_markdown(racine, violations, cycles, total, langues):
 
 def rapport_sarif(racine, violations):
     regles = [
-        {"id": regle, "shortDescription": {"text": regle}}
-        for regle in ORDRE_REGLES
+        {"id": regle, "shortDescription": {"text": regle}} for regle in ORDRE_REGLES
     ]
     resultats = []
     for violation in violations:
@@ -870,9 +859,7 @@ def rapport_sarif(racine, violations):
                     {
                         "physicalLocation": {
                             "artifactLocation": {"uri": violation["fichier"]},
-                            "region": {
-                                "startLine": max(violation["ligne"], 1)
-                            },
+                            "region": {"startLine": max(violation["ligne"], 1)},
                         },
                     }
                 ],
@@ -905,13 +892,22 @@ def rapport_sarif(racine, violations):
 # --------------------------------------------------------------------------
 
 
-def collecter(racine, config):
+def collecter(racine, config, afficher_progression=False):
     violations = []
     arbres = {}
     textes = {}
     langues = set()
     total = 0
-    for chemin, langue in fichiers(racine, config):
+    liste = list(fichiers(racine, config))
+    nombre_total = len(liste)
+    for index, (chemin, langue) in enumerate(liste, 1):
+        if afficher_progression:
+            relatif_affichage = str(chemin.relative_to(racine))
+            print(
+                f"[{index}/{nombre_total}] {relatif_affichage}",
+                file=sys.stderr,
+                flush=True,
+            )
         total += 1
         langues.add(langue)
         relatif = str(chemin.relative_to(racine))
@@ -943,35 +939,37 @@ def main():
     parseur.add_argument("--exclure", nargs="*", default=[])
     parseur.add_argument("--desactiver")
     parseur.add_argument("--srp", action=argparse.BooleanOptionalAction)
-    parseur.add_argument(
-        "--duplication", action=argparse.BooleanOptionalAction
-    )
+    parseur.add_argument("--duplication", action=argparse.BooleanOptionalAction)
     parseur.add_argument("--ordre", action=argparse.BooleanOptionalAction)
     parseur.add_argument("--baseline")
     parseur.add_argument("--ecrire-baseline")
     parseur.add_argument("--check", action="store_true")
     parseur.add_argument("--summary", action="store_true")
-    parseur.add_argument(
-        "--format", choices=("md", "json", "sarif"), default="md"
-    )
+    parseur.add_argument("--format", choices=("md", "json", "sarif"), default="md")
     parseur.add_argument("--sortie")
+    parseur.add_argument(
+        "--quiet",
+        "--no-progress",
+        "--silent",
+        action="store_true",
+        dest="quiet",
+        help="Désactive l'affichage de la progression sur stderr.",
+    )
     arguments = parseur.parse_args()
 
     racine = Path(arguments.racine).resolve()
-    config = fusionner_options(
-        lire_config(racine, arguments.config), arguments
-    )
+    config = fusionner_options(lire_config(racine, arguments.config), arguments)
 
-    violations, cycles, total, langues = collecter(racine, config)
+    violations, cycles, total, langues = collecter(
+        racine, config, afficher_progression=not arguments.quiet
+    )
     desactivees = set(config["regles_desactivees"])
     violations = [v for v in violations if v["regle"] not in desactivees]
 
     if arguments.ecrire_baseline:
         ecrire_baseline(arguments.ecrire_baseline, violations)
 
-    restantes = filtrer_baseline(
-        violations, charger_baseline(config["baseline"])
-    )
+    restantes = filtrer_baseline(violations, charger_baseline(config["baseline"]))
 
     if arguments.format == "json":
         contenu = json.dumps(
@@ -998,10 +996,7 @@ def main():
 
     if arguments.summary:
         langues_texte = ",".join(sorted(langues)) or "-"
-        print(
-            f"violations={len(restantes)} fichiers={total} "
-            f"langues={langues_texte}"
-        )
+        print(f"violations={len(restantes)} fichiers={total} langues={langues_texte}")
 
     if arguments.check and (restantes or cycles):
         return 1
