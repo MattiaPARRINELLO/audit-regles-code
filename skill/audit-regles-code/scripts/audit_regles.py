@@ -225,27 +225,42 @@ def est_bool(node):
     return False
 
 
-def renvoie_une_valeur(node):
+_MEMO_FONCTION = {}
+
+
+def infos_fonction(node):
+    cle = id(node)
+    memo = _MEMO_FONCTION.get(cle)
+    if memo is not None:
+        return memo
+    renvoie = False
+    effet = False
     for sous in ast.walk(node):
-        if isinstance(sous, ast.Return) and sous.value is not None:
-            return True
-    return False
+        if not renvoie and isinstance(sous, ast.Return) and sous.value is not None:
+            renvoie = True
+        if not effet and isinstance(sous, ast.Call):
+            nom = ""
+            if isinstance(sous.func, ast.Name):
+                nom = sous.func.id
+            elif isinstance(sous.func, ast.Attribute):
+                nom = sous.func.attr
+            if nom in {"print", "input", "write", "insert_one"}:
+                effet = True
+            elif nom.startswith(("enregistrer_", "logger")):
+                effet = True
+        if renvoie and effet:
+            break
+    resultat = (renvoie, effet)
+    _MEMO_FONCTION[cle] = resultat
+    return resultat
+
+
+def renvoie_une_valeur(node):
+    return infos_fonction(node)[0]
 
 
 def a_un_effet_de_bord(node):
-    for sous in ast.walk(node):
-        if not isinstance(sous, ast.Call):
-            continue
-        nom = ""
-        if isinstance(sous.func, ast.Name):
-            nom = sous.func.id
-        elif isinstance(sous.func, ast.Attribute):
-            nom = sous.func.attr
-        if nom in {"print", "input", "write", "insert_one"}:
-            return True
-        if nom.startswith(("enregistrer_", "logger")):
-            return True
-    return False
+    return infos_fonction(node)[1]
 
 
 def regle_longueur(node, lignes, relatif, config):
@@ -414,6 +429,8 @@ def blocs_accolades(lignes):
             if ";" in lignes[j]:
                 break
             j += 1
+        if j >= len(lignes):
+            break
         if j >= len(lignes) or "{" not in lignes[j]:
             i += 1
             continue
@@ -682,23 +699,42 @@ def chercher_duplication(textes, config):
         return []
     taille = int(reglage.get("seuil_lignes", 4))
     minimum = int(reglage.get("min_occurrences", 2))
-    occurrences = {}
+    comptes = {}
     for relatif, lignes in textes.items():
         normalisees = [normaliser_ligne(ligne) for ligne in lignes]
         for debut in range(len(normalisees) - taille + 1):
             fenetre = normalisees[debut : debut + taille]
-            if sum(1 for ligne in fenetre if ligne) < taille:
+            if any(not ligne for ligne in fenetre):
                 continue
             if len(set(fenetre)) == 1:
                 continue
             cle = hashlib.sha1("\n".join(fenetre).encode()).hexdigest()
-            occurrences.setdefault(cle, []).append((relatif, debut + 1))
+            comptes[cle] = comptes.get(cle, 0) + 1
+    candidats = {cle for cle, compte in comptes.items() if compte >= minimum}
+    lieux_par_cle = {cle: [] for cle in candidats}
+    for relatif, lignes in textes.items():
+        normalisees = [normaliser_ligne(ligne) for ligne in lignes]
+        for debut in range(len(normalisees) - taille + 1):
+            fenetre = normalisees[debut : debut + taille]
+            if any(not ligne for ligne in fenetre):
+                continue
+            if len(set(fenetre)) == 1:
+                continue
+            cle = hashlib.sha1("\n".join(fenetre).encode()).hexdigest()
+            if cle not in candidats:
+                continue
+            emplacements = lieux_par_cle[cle]
+            if len(emplacements) < 2:
+                emplacements.append((relatif, debut + 1))
     violations = []
     deja_vus = set()
-    for cle, lieux in occurrences.items():
-        if len(lieux) < minimum or cle in deja_vus:
+    for cle in candidats:
+        if cle in deja_vus:
             continue
         deja_vus.add(cle)
+        lieux = lieux_par_cle[cle]
+        if len(lieux) < 2:
+            continue
         premier = lieux[0]
         violations.append(
             {
@@ -707,7 +743,8 @@ def chercher_duplication(textes, config):
                 "ligne": premier[1],
                 "langue": "?",
                 "detail": (
-                    f"bloc de {taille} lignes répété {len(lieux)} fois, "
+                    f"bloc de {taille} lignes répété "
+                    f"{comptes[cle]} fois, "
                     f"par exemple en {lieux[1][0]}:{lieux[1][1]}"
                 ),
             }
@@ -898,6 +935,7 @@ def collecter(racine, config, afficher_progression=False):
     textes = {}
     langues = set()
     total = 0
+    noms_modules = set()
     liste = list(fichiers(racine, config))
     nombre_total = len(liste)
     for index, (chemin, langue) in enumerate(liste, 1):
@@ -915,6 +953,7 @@ def collecter(racine, config, afficher_progression=False):
             encoding="utf-8", errors="replace"
         ).splitlines()
         if langue == "python":
+            noms_modules.add(chemin.stem)
             trouvees, tree = analyser_python(chemin, relatif, config)
             violations.extend(trouvees)
             if tree is not None:
@@ -925,7 +964,19 @@ def collecter(racine, config, afficher_progression=False):
     violations.extend(fonctions_mortes(racine, arbres))
     violations.extend(ordre_fonctions(arbres, config, racine))
     violations.extend(chercher_duplication(textes, config))
-    cycles = chercher_cycles(modules_python(racine, config))
+    modules = {nom: set() for nom in noms_modules}
+    for chemin, tree in arbres.items():
+        nom = chemin.stem
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    modules[nom].add(alias.name.split(".")[0])
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules[nom].add(node.module.split(".")[0])
+    modules = {
+        nom: {dep for dep in deps if dep in modules} for nom, deps in modules.items()
+    }
+    cycles = chercher_cycles(modules)
     return violations, cycles, total, langues
 
 
